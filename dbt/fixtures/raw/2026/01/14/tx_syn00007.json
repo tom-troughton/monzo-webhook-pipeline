@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00007",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -5905,
+    "currency": "GBP",
+    "created": "2026-01-14T18:00:00Z",
+    "settled": "2026-01-14T19:00:00Z",
+    "description": "SAINSBURY'S STORES",
+    "category": "groceries",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000sainsburys1",
+      "name": "Sainsbury's",
+      "category": "groceries",
+      "emoji": "\ud83d\uded2",
+      "online": false,
+      "atm": false
+    }
+  }
+}

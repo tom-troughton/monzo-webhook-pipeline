@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00040",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -718,
+    "currency": "GBP",
+    "created": "2026-03-20T08:30:00Z",
+    "settled": "2026-03-20T09:30:00Z",
+    "description": "PRET A MANGER",
+    "category": "eating_out",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000pret000001",
+      "name": "Pret A Manger",
+      "category": "eating_out",
+      "emoji": "\ud83e\udd6a",
+      "online": false,
+      "atm": false
+    }
+  }
+}

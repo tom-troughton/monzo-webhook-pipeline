@@ -1,0 +1,17 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00016",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": 285000,
+    "currency": "GBP",
+    "created": "2026-02-25T09:00:00Z",
+    "settled": "2026-02-25T10:00:00Z",
+    "description": "SALARY ACME CORP",
+    "category": "income",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": null
+  }
+}

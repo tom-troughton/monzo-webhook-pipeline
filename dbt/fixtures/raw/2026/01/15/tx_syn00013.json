@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00013",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -2999,
+    "currency": "GBP",
+    "created": "2026-01-15T21:00:00Z",
+    "settled": "2026-01-15T22:00:00Z",
+    "description": "AMAZON.CO.UK",
+    "category": "shopping",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000amazon0001",
+      "name": "Amazon",
+      "category": "shopping",
+      "emoji": "\ud83d\udce6",
+      "online": true,
+      "atm": false
+    }
+  }
+}

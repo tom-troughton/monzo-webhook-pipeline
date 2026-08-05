@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00026",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -317,
+    "currency": "GBP",
+    "created": "2026-02-10T17:45:00Z",
+    "settled": "2026-02-10T18:45:00Z",
+    "description": "TRANSPORT FOR LONDON",
+    "category": "transport",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000tfl0000001",
+      "name": "Transport for London",
+      "category": "transport",
+      "emoji": "\ud83d\ude87",
+      "online": false,
+      "atm": false
+    }
+  }
+}

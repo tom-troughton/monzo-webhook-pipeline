@@ -1,0 +1,17 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00017",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -95000,
+    "currency": "GBP",
+    "created": "2026-02-01T06:00:00Z",
+    "settled": "2026-02-01T07:00:00Z",
+    "description": "RENT LANDLORD LTD",
+    "category": "bills",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": null
+  }
+}

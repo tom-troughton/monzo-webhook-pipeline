@@ -6,3 +6,9 @@ venv/
 .claude/settings.local.json
 functions/local.settings.json
 .pytest_cache/
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/dev.duckdb
+dbt/dev.duckdb.wal
+dbt/.user.yml

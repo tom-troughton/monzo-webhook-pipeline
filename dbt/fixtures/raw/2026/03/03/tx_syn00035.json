@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00035",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -3500,
+    "currency": "GBP",
+    "created": "2026-03-03T07:00:00Z",
+    "settled": "2026-03-03T08:00:00Z",
+    "description": "PUREGYM LONDON",
+    "category": "personal_care",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000puregym0001",
+      "name": "PureGym",
+      "category": "personal_care",
+      "emoji": "\ud83d\udcaa",
+      "online": false,
+      "atm": false
+    }
+  }
+}

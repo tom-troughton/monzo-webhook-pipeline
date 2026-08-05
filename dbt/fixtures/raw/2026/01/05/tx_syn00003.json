@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00003",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -999,
+    "currency": "GBP",
+    "created": "2026-01-05T08:15:00Z",
+    "settled": "2026-01-05T09:15:00Z",
+    "description": "NETFLIX.COM",
+    "category": "entertainment",
+    "notes": "Netflix",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000netflix001",
+      "name": "Netflix",
+      "category": "entertainment",
+      "emoji": "\ud83c\udfac",
+      "online": true,
+      "atm": false
+    }
+  }
+}

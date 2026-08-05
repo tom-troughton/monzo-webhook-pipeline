@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00019",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -1099,
+    "currency": "GBP",
+    "created": "2026-02-07T19:30:00Z",
+    "settled": "2026-02-07T20:30:00Z",
+    "description": "SPOTIFY",
+    "category": "entertainment",
+    "notes": "Spotify",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000spotify001",
+      "name": "Spotify",
+      "category": "entertainment",
+      "emoji": "\ud83c\udfb5",
+      "online": true,
+      "atm": false
+    }
+  }
+}

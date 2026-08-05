@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00030",
+    "account_id": "acc_00009xJ4joint00001",
+    "amount": -18500,
+    "currency": "GBP",
+    "created": "2026-02-01T06:00:00Z",
+    "settled": "2026-02-01T07:00:00Z",
+    "description": "COUNCIL TAX",
+    "category": "bills",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000council001",
+      "name": "Local Council Tax",
+      "category": "bills",
+      "emoji": "\ud83c\udfdb\ufe0f",
+      "online": false,
+      "atm": false
+    }
+  }
+}

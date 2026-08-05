@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00047",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -1450,
+    "currency": "GBP",
+    "created": "2026-02-12T13:00:00Z",
+    "settled": "2026-02-12T14:00:00Z",
+    "description": "BOOTS",
+    "category": "shopping",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000boots00001",
+      "name": "Boots",
+      "category": "shopping",
+      "emoji": "\ud83d\udc8a",
+      "online": false,
+      "atm": false
+    }
+  }
+}

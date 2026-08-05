@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00006",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -4231,
+    "currency": "GBP",
+    "created": "2026-01-06T18:00:00Z",
+    "settled": "2026-01-06T19:00:00Z",
+    "description": "TESCO STORES",
+    "category": "groceries",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000tesco00001",
+      "name": "Tesco",
+      "category": "groceries",
+      "emoji": "\ud83d\uded2",
+      "online": false,
+      "atm": false
+    }
+  }
+}

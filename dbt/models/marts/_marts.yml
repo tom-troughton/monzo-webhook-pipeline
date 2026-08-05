@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: dim_account
+    description: Degenerate account dimension derived from transaction activity.
+    columns:
+      - name: account_id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: dim_category
+    description: Distinct transaction categories with a human-readable label.
+    columns:
+      - name: category
+        data_tests:
+          - unique
+          - not_null
+
+  - name: dim_merchant
+    description: One row per merchant seen in transactions.
+    columns:
+      - name: merchant_id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: fct_transactions
+    description: One row per transaction (including declined attempts), FKs out to the dims.
+    columns:
+      - name: transaction_id
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_account')
+                field: account_id
+      - name: category
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_category')
+                field: category
+
+  - name: mart_spend_by_category
+    description: Monthly spend total per category, excluding declined transactions.
+    columns:
+      - name: total_spend
+        data_tests:
+          - not_null
+
+  - name: mart_monthly_cashflow
+    description: Income, expenses and net cashflow per calendar month.
+    columns:
+      - name: transaction_month
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_merchant_summary
+    description: Spend totals per merchant, excluding declined transactions.
+    columns:
+      - name: merchant_id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_subscriptions
+    description: Merchants charging the same amount in 2+ distinct calendar months.

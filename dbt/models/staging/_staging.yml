@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: stg_transactions
+    description: >
+      One row per transaction, deduped by transaction_id (reconciliation wins over webhook -
+      see docs/decisions/0001-reconciliation-as-source-of-truth.md). Incremental, merged on
+      transaction_id.
+    columns:
+      - name: transaction_id
+        description: Monzo transaction ID.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+      - name: amount_minor_units
+        description: Signed amount in minor currency units (pence for GBP). Negative = spend.
+        data_tests:
+          - not_null
+      - name: currency
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["GBP"]
+      - name: created_at
+        data_tests:
+          - not_null
+      - name: category
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - general
+                  - eating_out
+                  - expenses
+                  - groceries
+                  - bills
+                  - entertainment
+                  - transport
+                  - holidays
+                  - family
+                  - personal_care
+                  - shopping
+                  - cash
+                  - transfers
+                  - income
+                  - gifts
+                  - finances
+      - name: ingestion_source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["webhook", "reconciliation"]

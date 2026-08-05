@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00038",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -3434,
+    "currency": "GBP",
+    "created": "2026-03-22T18:00:00Z",
+    "settled": "2026-03-22T19:00:00Z",
+    "description": "ALDI STORES",
+    "category": "groceries",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000aldi000001",
+      "name": "Aldi",
+      "category": "groceries",
+      "emoji": "\ud83d\uded2",
+      "online": false,
+      "atm": false
+    }
+  }
+}
