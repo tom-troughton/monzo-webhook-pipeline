@@ -10,6 +10,16 @@ variable "github_repo" {
   type = string
 }
 
+variable "github_org_id" {
+  description = "Numeric owner ID - GitHub's OIDC subject claim includes it (repo:org@org_id/repo@repo_id:...) so the subject stays valid across renames/transfers"
+  type        = string
+}
+
+variable "github_repo_id" {
+  description = "Numeric repository ID - see github_org_id"
+  type        = string
+}
+
 variable "branch" {
   description = "Branch trusted to run terraform apply (not just plan)"
   type        = string

@@ -82,9 +82,11 @@ resource "azurerm_role_assignment" "function_app_kv_reader" {
 module "github_oidc" {
   source = "./modules/github_oidc"
 
-  project_name = var.project_name
-  github_org   = var.github_org
-  github_repo  = var.github_repo
+  project_name   = var.project_name
+  github_org     = var.github_org
+  github_repo    = var.github_repo
+  github_org_id  = var.github_org_id
+  github_repo_id = var.github_repo_id
 
   resource_group_id = azurerm_resource_group.main.id
   subscription_id   = data.azurerm_client_config.current.subscription_id

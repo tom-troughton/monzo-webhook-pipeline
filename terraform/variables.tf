@@ -44,3 +44,15 @@ variable "github_repo" {
   type    = string
   default = "monzo-webhook-pipeline"
 }
+
+variable "github_org_id" {
+  description = "Numeric GitHub owner ID - visible in the failed workflow's OIDC subject claim, or via `gh api users/<org>`"
+  type        = string
+  default     = "88544233"
+}
+
+variable "github_repo_id" {
+  description = "Numeric GitHub repository ID - see github_org_id"
+  type        = string
+  default     = "1323382936"
+}

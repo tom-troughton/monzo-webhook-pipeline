@@ -8,13 +8,16 @@ resource "azuread_service_principal" "github_actions" {
   client_id = azuread_application.github_actions.client_id
 }
 
+# Subject includes GitHub's numeric owner/repo IDs (repo:org@org_id/repo@repo_id:...) - GitHub
+# includes these by default so the subject stays valid across repo renames/owner transfers.
+
 # Push to the trusted branch - allowed to plan AND apply.
 resource "azuread_application_federated_identity_credential" "branch_push" {
   application_id = azuread_application.github_actions.id
   display_name   = "${var.branch}-branch"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/${var.branch}"
+  subject        = "repo:${var.github_org}@${var.github_org_id}/${var.github_repo}@${var.github_repo_id}:ref:refs/heads/${var.branch}"
 }
 
 # Pull requests - plan only in practice, since the workflow gates apply on the branch above.
@@ -23,7 +26,7 @@ resource "azuread_application_federated_identity_credential" "pull_request" {
   display_name   = "pull-request"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_org}/${var.github_repo}:pull_request"
+  subject        = "repo:${var.github_org}@${var.github_org_id}/${var.github_repo}@${var.github_repo_id}:pull_request"
 }
 
 # Contributor manages resources; Terraform also creates RBAC role assignments (Key Vault,
