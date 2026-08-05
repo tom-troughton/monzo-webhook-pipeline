@@ -53,7 +53,10 @@ module "key_vault" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
 
-  secret_officer_object_ids = [data.azurerm_client_config.current.object_id]
+  secret_officer_object_ids = [
+    data.azurerm_client_config.current.object_id,
+    module.github_oidc.principal_id,
+  ]
 
   monzo_client_id     = var.monzo_client_id
   monzo_client_secret = var.monzo_client_secret
