@@ -5,7 +5,8 @@ models:
     description: >
       One row per transaction, deduped by transaction_id (reconciliation wins over webhook -
       see docs/decisions/0001-reconciliation-as-source-of-truth.md). Incremental, merged on
-      transaction_id.
+      transaction_id. Reads a recent date-scoped window of raw/ rather than every file every run
+      once there's a watermark to scope from - see dbt/macros/incremental_scoping.sql.
     columns:
       - name: transaction_id
         description: Monzo transaction ID.
@@ -65,6 +66,8 @@ models:
   - name: export_staging_transactions
     description: >
       Publishes stg_transactions to the staging/ container as Parquet, Hive-partitioned by
-      transaction_year/transaction_month. A full rewrite each run (dbt-duckdb's `external`
-      materialization can't also be incremental) - stg_transactions itself still does the real
-      incremental merge against raw/, this just republishes its current contents to Blob Storage.
+      transaction_year/transaction_month. dbt-duckdb's `external` materialization can't also be
+      `incremental`, so this always rewrites whatever its SELECT returns - but the SELECT itself
+      is scoped to the same recent window as stg_transactions' own read (incremental_scan_from()),
+      so in practice only the months that could plausibly have changed get rewritten. DuckDB's
+      partitioned COPY leaves partitions outside the current result set untouched, not deleted.

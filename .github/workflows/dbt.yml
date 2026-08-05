@@ -12,8 +12,14 @@ on:
       - "dbt/**"
   schedule:
     # Nightly fallback per the spec's CI/CD section - the Event Grid "new raw data" trigger isn't
-    # built yet, so this is the only thing that runs the pipeline until it is.
+    # built yet, so this is the only thing that runs the pipeline until it is. Incremental - scoped
+    # to recent raw/ data only, see scoped_raw_transactions_source() in dbt/macros/.
     - cron: "0 5 * * *"
+    # Weekly --full-refresh backstop (Sundays). The incremental scoping above trades a small,
+    # bounded correctness risk (a backdated reconciliation write older than the margin could be
+    # missed - see the macro's docstring) for not rescanning years of raw/ every night; this closes
+    # that gap on a regular cadence regardless of margin size.
+    - cron: "0 5 * * 0"
   workflow_dispatch: {}
 
 permissions:
@@ -82,7 +88,16 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Determine build args
+        id: build_args
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 5 * * 0" ]; then
+            echo "args=--full-refresh" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
       # azure/login performs an actual `az login` with the federated OIDC token, so DuckDB's
       # azure extension credential_chain (chain: cli, in profiles.yml) picks it up the same way
       # it does locally via `az login` - no separate secret or connection string needed.
-      - run: dbt build --target azure
+      - run: dbt build --target azure ${{ steps.build_args.outputs.args }}

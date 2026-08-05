@@ -116,6 +116,39 @@ for the reasoning already applied to the Function App hosting plan.
   (`savings`) the accepted_values test's hand-picked list didn't have — that test is now
   `severity: warn` rather than error, since Monzo's category taxonomy is external and evolving,
   not something a hard pipeline failure should gate on.
+- **Incremental runs are scoped to a recent date window, not a full rescan of `raw/`/`staging/`
+  every time.** At full history (4,988 transactions, one JSON blob per transaction in `raw/`), a
+  plain `dbt build --target azure` took ~8 minutes and would keep growing — `stg_transactions`
+  scanned every file in `raw/` on every run regardless of incremental filtering (the `is_incremental()`
+  WHERE clause only trims what gets *merged*, not what gets *read*), and `export_staging_transactions`
+  republished all 85 monthly partitions every run regardless of what changed. Fixed on both sides
+  by `dbt/macros/incremental_scoping.sql`'s `incremental_scan_from()`: computes a watermark (max
+  `created_at`) from `staging/`'s already-published Parquet — not `{{ this }}` (the local
+  incremental table), since GitHub Actions runners are ephemeral and that table doesn't exist yet
+  when CI's `publish` job starts — minus a configurable safety margin
+  (`incremental_lookback_days` var, default 30 days). `scoped_raw_transactions_source()` uses it to
+  build a `read_json([...])` call over only the candidate months (existence-checked via `glob()`
+  first and filtered — DuckDB's `read_json` hard-errors if *any* path in a multi-glob list matches
+  zero files, even when others match fine); `export_staging_transactions.sql` uses the same
+  watermark as a `WHERE created_at >=` filter, so DuckDB's partitioned `COPY` only rewrites
+  partitions that could plausibly have changed (confirmed empirically: it leaves partitions outside
+  the current result set untouched, doesn't delete them). Net effect on real data: ~8 min → ~65s.
+  The margin is a bounded risk, not a precise cutoff — reconciliation can write backdated
+  transactions to older `raw/` paths (that's its whole job per
+  [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)), and a window scoped
+  exactly to the watermark would silently stop seeing those the moment the watermark moves past
+  them. `.github/workflows/dbt.yml` now has a second weekly cron (`0 5 * * 0`) that runs
+  `dbt build --target azure --full-refresh` as the actual backstop closing that gap regardless of
+  margin size, distinguished from the nightly incremental cron via `github.event.schedule`.
+  **Gotcha:** `run_query()`'s result isn't safe to use during dbt's parse-only introspection pass
+  (which every invocation does, to extract `ref()`/`source()` dependencies, before any real
+  connection exists) — calling `.columns[...]` on it there throws an opaque `'None' has no
+  attribute 'table'`. `stg_transactions.sql` dodged this by accident (its `is_incremental()` check
+  short-circuits before ever reaching `run_query()` during that pass); `export_staging_transactions.sql`
+  doesn't have an equivalent natural guard (it's `external`, not `incremental`, so `is_incremental()`
+  there is always false and can't be used as the guard either), so `incremental_scan_from()`
+  explicitly checks dbt's `execute` flag (true only during real execution) before touching
+  `run_query()`.
 - **`staging/` and `marts/` are now real dbt outputs, not just provisioned containers.** The 4
   `mart_*` models are materialized `external` (DuckDB `COPY ... TO ... FORMAT PARQUET`), writing
   the exact filenames the spec's Storage section names (`marts/spend_by_category.parquet`, etc,

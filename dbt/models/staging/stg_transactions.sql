@@ -8,9 +8,15 @@
 
 -- Reconciliation is the source of truth over webhook deliveries (docs/decisions/0001), so
 -- when the same transaction_id somehow shows up more than once in a run, reconciliation wins.
+--
+-- Reads via scoped_raw_transactions_source(), not {{ source('raw', 'transactions') }} directly -
+-- see dbt/macros/incremental_scoping.sql for why (scans a recent date window instead of every
+-- file in raw/ on every run, once there's enough history for that to matter). The source is still
+-- declared in _sources.yml for docs/lineage and ad-hoc querying, just not used for this model's
+-- actual read.
 with source as (
 
-    select * from {{ source('raw', 'transactions') }}
+    select * from {{ scoped_raw_transactions_source() }}
 
 ),
 

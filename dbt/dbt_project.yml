@@ -13,6 +13,10 @@ vars:
   # Glob dbt-duckdb reads raw transaction JSON from when NOT using the `azure` target (which
   # reads the real raw/ container instead - see the target.name check in models/staging/_sources.yml).
   raw_transactions_glob: "fixtures/raw/**/*.json"
+  # Safety margin (not an exact cutoff) for stg_transactions' incremental raw/ read scoping - see
+  # dbt/macros/scoped_raw_transactions_source.sql for why this needs to be a margin, not a precise
+  # watermark, and .github/workflows/dbt.yml's weekly --full-refresh for the actual backstop.
+  incremental_lookback_days: 30
 
 models:
   monzo_finance:
