@@ -86,11 +86,3 @@ jobs:
       # azure extension credential_chain (chain: cli, in profiles.yml) picks it up the same way
       # it does locally via `az login` - no separate secret or connection string needed.
       - run: dbt build --target azure
-
-      - run: dbt docs generate --target azure
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dbt-docs
-          path: dbt/target
-          retention-days: 7

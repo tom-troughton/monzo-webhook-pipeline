@@ -157,8 +157,9 @@ for the reasoning already applied to the Function App hosting plan.
   `workflow_dispatch`) runs `dbt build --target azure` against real Blob Storage via the same
   `azure/login@v2` OIDC pattern `deploy.yml` uses — the action performs an actual `az login` with
   the federated token, which is what lets DuckDB's `credential_chain` (`chain: cli`) authenticate
-  in CI exactly like it does locally. Also runs `dbt docs generate` and uploads the docs as a build
-  artifact (7-day retention) — not hosted anywhere yet, just downloadable for now.
+  in CI exactly like it does locally. No `dbt docs generate` step — it produced a docs site nobody
+  could reach (no hosting), so it was dropped rather than generating an artifact nobody downloads;
+  revisit once dbt docs hosting is actually built.
 
 **Partially applied:** `terraform apply` for the Function App module is blocked on an Azure
 subscription-level App Service quota (`Y1 VMs` / `Total Regional VMs` = 0). Self-service quota
@@ -180,8 +181,8 @@ allocation issue, so switching regions won't help.
   subscription outright, quota aside. A compute-free stopgap (Event Grid → Storage Queue, short-
   interval CI polling) was considered and explicitly rejected — not worth building something that
   would just get thrown away once the Function App exists.
-- dbt docs hosting (currently just uploaded as a downloadable CI artifact, per the spec's Future
-  Enhancements section).
+- dbt docs hosting, per the spec's Future Enhancements section (no CI step generates docs currently
+  either — dropped since nothing hosted them).
 - Backfill-on-demand for a specific date range (spec mentions it; not part of the 3 functions ADR-0004
   scopes, deferred).
 - Hierarchical Namespace (ADLS Gen2) on the storage account — proposed, not yet enabled. See
