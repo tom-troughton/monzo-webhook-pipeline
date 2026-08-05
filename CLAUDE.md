@@ -2,7 +2,7 @@
 
 Personal Finance Data Platform — a portfolio data engineering project ingesting Monzo transaction
 data via webhook + API reconciliation, transforming it with dbt/DuckDB, and exposing curated marts
-through an MCP server. Full spec: [Personal_Finance_Data_Platform_Project_Spec_v2.md](Personal_Finance_Data_Platform_Project_Spec_v2.md).
+through an MCP server. Full spec: [Personal_Finance_Data_Platform_Project_Spec_v2.md](docs/Personal_Finance_Data_Platform_Project_Spec_v2.md).
 
 Design rationale for individual decisions lives in [docs/decisions/](docs/decisions/) as ADRs —
 check there before re-deciding something that may already have a documented answer, especially
