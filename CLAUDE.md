@@ -81,8 +81,8 @@ for the reasoning already applied to the Function App hosting plan.
   Storage (own bare `duckdb.connect()` + `credential_chain` secret, independent of the dbt
   project's connection) - no-arg prints all 4 marts, or pass a SQL string to run your own query
   against them (they're pre-registered as views named after the mart, e.g. `subscriptions`).
-  Stopgap for the not-yet-built MCP server, which will expose curated versions of these same
-  queries as tools instead of raw SQL.
+  Predates `mcp_server/` (see below) and stays useful alongside it for ad-hoc SQL the 5 curated
+  tools don't cover.
 - `dbt/` — dbt-duckdb project, verified end-to-end against both local fixtures and the real `raw/`
   container (`dbt build` passes: 10 models, 25 data tests, either way). `stg_transactions`
   (incremental, merge on `transaction_id`, reconciliation wins over webhook per
@@ -160,6 +160,26 @@ for the reasoning already applied to the Function App hosting plan.
   in CI exactly like it does locally. No `dbt docs generate` step — it produced a docs site nobody
   could reach (no hosting), so it was dropped rather than generating an artifact nobody downloads;
   revisit once dbt docs hosting is actually built.
+- `mcp_server/` — the 5 tools the spec's MCP section names (`get_spend_by_category`,
+  `get_monthly_cashflow`, `get_top_merchants`, `get_subscriptions`, `get_data_quality_report`),
+  built on the `mcp` SDK's `MCPServer` (the current SDK major version renamed `FastMCP` to this -
+  same `@mcp.tool()`/`.run()` shape, just a different import path:
+  `mcp.server.mcpserver.MCPServer`, not `mcp.server.fastmcp.FastMCP`). `marts.py` is the same
+  `credential_chain`/`az login` connection pattern as `scripts/query_marts.py`, registering the 4
+  marts plus a `staging` view (per-transaction data, not aggregated - `get_data_quality_report`
+  needs it); `tools.py` holds the 5 query functions as plain functions taking a connection, kept
+  separate from `server.py`'s `@mcp.tool()` wrappers specifically so they're testable against an
+  in-memory DuckDB with fixture data (`mcp_server/tests/`, 8 tests, no real Azure access needed) -
+  same reasoning as `functions/`'s mocked-dependency test pattern. `get_data_quality_report`
+  computes everything live from `staging`/the marts (row counts, date range, duplicate-
+  `transaction_id` check, decline count) rather than depending on stored dbt test results, since
+  the freshness/reconciliation dbt tests the spec's Data Quality section wants aren't built yet.
+  Its `hours_since_last_transaction` field is a "how recent is the data" proxy, not "how recently
+  did ingestion last run" - there's no ingestion-run signal to report since the webhook/
+  reconciliation Function isn't deployed. Runs locally/on-demand via `python -m mcp_server.server`
+  (stdio transport) per the spec's "not a hosted service" intent - launch it from an MCP client
+  config, same as any other local MCP server. Not wired into CI (no test-running workflow exists
+  for `functions/` either - pytest is run manually for both right now).
 
 **Partially applied:** `terraform apply` for the Function App module is blocked on an Azure
 subscription-level App Service quota (`Y1 VMs` / `Total Regional VMs` = 0). Self-service quota
@@ -169,7 +189,6 @@ northeurope, eastus, swedencentral) — this is a subscription-wide review hold,
 allocation issue, so switching regions won't help.
 
 **Not yet built:**
-- MCP server.
 - Event Grid (blob-created) trigger for the dbt pipeline — currently push-to-master/nightly
   cron/manual only (`.github/workflows/dbt.yml`), per the spec's fallback path. Design + rationale
   for why it's deliberately left blocked on the Function App quota, not worked around (a compute-

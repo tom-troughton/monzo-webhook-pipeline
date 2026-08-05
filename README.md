@@ -35,8 +35,9 @@ Storage Queue                               │
                           │
                           ▼
       Python MCP Server ── curated tools only
-       (not yet built; scripts/query_marts.py
-             is a stopgap for now)
+     (mcp_server/, runs locally/on-demand via
+    stdio, not hosted - scripts/query_marts.py
+       remains for ad-hoc SQL the tools don't cover)
                           │
                           ▼
                  LLM / Chat Client
@@ -102,8 +103,12 @@ DuckDB · dbt · GitHub Actions · MCP
   reconciliation Function being deployed) using the exact same write path that Function will
   eventually use.
 - **Operational scripts** (`scripts/`): one-time OAuth bootstrap, API sanity checks, the backfill
-  above, and `query_marts.py` — a stopgap for querying the real marts directly from Blob Storage
-  ahead of the MCP server existing.
+  above, and `query_marts.py` for ad-hoc SQL against the real marts.
+- **MCP server** (`mcp_server/`): the 5 curated tools the spec names — `get_spend_by_category`,
+  `get_monthly_cashflow`, `get_top_merchants`, `get_subscriptions`, `get_data_quality_report` — over
+  the same marts, plus pytest coverage against an in-memory DuckDB (no real Azure access needed to
+  run the tests). Runs locally/on-demand over stdio (`python -m mcp_server.server`), not hosted, per
+  the spec's intent.
 
 **Blocked:** `terraform apply` for the Function App is currently held up by an Azure
 subscription-level App Service quota (`Y1` VMs = 0) that persists across every region tried. A
@@ -111,8 +116,10 @@ support ticket is open. Left in place deliberately as an honest snapshot rather 
 with a paid SKU — see the "Cost discipline" constraint in [CLAUDE.md](CLAUDE.md). This is also why
 `raw/` is populated by a manual backfill script for now rather than the webhook/reconciliation path.
 
-**Not yet built:** MCP server, the Event Grid (blob-created) trigger for near-real-time dbt runs
-(currently push/cron/manual only), dbt docs hosting (generated in CI, just not hosted anywhere yet).
+**Not yet built:** the Event Grid (blob-created) trigger for near-real-time dbt runs (currently
+push/cron/manual only — see [ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md)
+for why, and the design once the Function App quota clears), dbt docs hosting (generated in CI,
+just not hosted anywhere yet).
 
 ## Repository layout
 
@@ -121,7 +128,7 @@ terraform/    infrastructure as code (modules: storage, key_vault, function_app,
 functions/    deployed Azure Functions app (Python v2 model) — webhook, queue processor, reconciliation
 dbt/          dbt-duckdb transformation layer — staging → dims/fact → marts, published as Parquet
 scripts/      manual/local-only operational tooling (OAuth bootstrap, backfill, mart queries) — never run in CI
-mcp_server/   curated query layer over dbt marts (not yet built)
+mcp_server/   MCP server exposing 5 curated tools over the dbt marts, runs locally over stdio
 docs/         full spec + architecture decision records
 .github/      CI: infra/app deploy, dbt build/publish
 ```
@@ -134,10 +141,13 @@ architectural layer rather than by environment.
 ```bash
 pip install -r functions/requirements-dev.txt
 pytest functions/tests
+
+pip install -r mcp_server/requirements-dev.txt
+pytest mcp_server/tests
 ```
 
-All Function tests are unit tests against mocked Azure/Monzo clients — nothing here touches a real
-account or real infrastructure.
+Both are unit tests against mocked Azure/Monzo clients or an in-memory DuckDB — nothing here
+touches a real account or real infrastructure.
 
 ## Running dbt
 
@@ -150,6 +160,17 @@ DBT_PROFILES_DIR=. dbt build --target azure   # azure target: real Blob Storage 
 
 `dbt/fixtures/` holds the synthetic dataset (regenerate via `python dbt/fixtures/generate_fixtures.py`)
 used for local development and CI, so PRs never need real data or Azure credentials to validate.
+
+## Running the MCP server
+
+```bash
+pip install -r mcp_server/requirements.txt
+az login   # credential_chain auth against the real marts/staging containers
+python -m mcp_server.server
+```
+
+Runs over stdio - point an MCP client's config at that command rather than running it directly, or
+use `scripts/query_marts.py` for one-off SQL against the same data outside an MCP client.
 
 ## Data privacy
 
