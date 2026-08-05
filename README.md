@@ -91,8 +91,9 @@ DuckDB · dbt · GitHub Actions · MCP
   reconciliation, with shared Monzo auth/blob-writer/validation modules and pytest coverage
   (all mocked — no real Monzo/Azure calls in tests). Not deployed yet — see "Blocked" below.
 - **dbt project** (`dbt/`), verified end-to-end against both local synthetic fixtures and real Blob
-  Storage: `stg_transactions` (incremental, dedupes webhook vs. reconciliation sources) →
-  dimension/fact models → 4 curated marts, materialized straight to Parquet in `staging/`/`marts/`.
+  Storage: `stg_transactions` (scoped to a recent window once there's a watermark, deduping
+  webhook vs. reconciliation sources) → dimension/fact models → 4 curated marts, materialized
+  straight to Parquet in `staging/`/`marts/`.
   Two targets - `dev` (local fixtures, no cloud calls) and `azure` (the real containers, via
   DuckDB's `azure` extension with OIDC/`credential_chain` auth, no stored secret).
 - **`.github/workflows/`**: `deploy.yml` (Terraform plan/apply + Function publish, OIDC) and

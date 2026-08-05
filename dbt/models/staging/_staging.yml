@@ -4,9 +4,12 @@ models:
   - name: stg_transactions
     description: >
       One row per transaction, deduped by transaction_id (reconciliation wins over webhook -
-      see docs/decisions/0001-reconciliation-as-source-of-truth.md). Incremental, merged on
-      transaction_id. Reads a recent date-scoped window of raw/ rather than every file every run
-      once there's a watermark to scope from - see dbt/macros/incremental_scoping.sql.
+      see docs/decisions/0001-reconciliation-as-source-of-truth.md). Materialized as a plain
+      table, rebuilt fresh every run - not dbt's `incremental` materialization, which requires a
+      local relation to persist between runs and is therefore always a no-op on GitHub Actions'
+      ephemeral runners. Instead unions a scoped, recent read of raw/ with the already-published
+      staging/ output once there's a watermark to scope from - see
+      dbt/macros/incremental_scoping.sql.
     columns:
       - name: transaction_id
         description: Monzo transaction ID.

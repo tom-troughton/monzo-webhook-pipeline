@@ -117,63 +117,67 @@ for the reasoning already applied to the Function App hosting plan.
   `severity: warn` rather than error, since Monzo's category taxonomy is external and evolving,
   not something a hard pipeline failure should gate on.
 - **Incremental runs are scoped to a recent date window, not a full rescan of `raw/`/`staging/`
-  every time.** At full history (4,988 transactions, one JSON blob per transaction in `raw/`), a
-  plain `dbt build --target azure` took ~8 minutes and would keep growing — `stg_transactions`
-  scanned every file in `raw/` on every run regardless of incremental filtering (the `is_incremental()`
-  WHERE clause only trims what gets *merged*, not what gets *read*), and `export_staging_transactions`
-  republished all 85 monthly partitions every run regardless of what changed. Fixed on both sides
-  by `dbt/macros/incremental_scoping.sql`'s `incremental_scan_from()`: computes a watermark (max
-  `created_at`) from `staging/`'s already-published Parquet — not `{{ this }}` (the local
-  incremental table), since GitHub Actions runners are ephemeral and that table doesn't exist yet
-  when CI's `publish` job starts — minus a configurable safety margin
-  (`incremental_lookback_days` var, default 30 days). `scoped_raw_transactions_source()` uses it to
-  build a `read_json([...])` call over only the candidate months (existence-checked via `glob()`
+  every time — and this now genuinely works in CI, not just in repeated local `dbt build` runs.**
+  At full history (4,988 transactions, one JSON blob per transaction in `raw/`), a plain
+  `dbt build --target azure` took ~8 minutes (occasionally ~17-20 min, apparently transient) and
+  would keep growing. The fix went through two iterations worth knowing about:
+  1. **First attempt** scoped `stg_transactions`' raw/ read (via
+     `dbt/macros/incremental_scoping.sql`'s `scoped_raw_transactions_source()`) but gated it on
+     `is_incremental()`, which requires the model's local relation to already exist. That's fine
+     for a human running `dbt build` repeatedly on one machine (~8 min → ~65s there), but silently
+     inert in CI: GitHub Actions runners are ephemeral, so the local relation *never* exists at the
+     start of a `publish` job, `is_incremental()` is therefore always false, and every CI run fell
+     straight through to a full unscoped scan regardless - exactly the problem this was supposed to
+     fix, unfixed, just for the run that actually matters.
+  2. **The real fix**: `stg_transactions` is now materialized as a plain `table`, not
+     `incremental`, and no longer depends on `is_incremental()`/local-table-persistence at all. It
+     rebuilds fresh every run by *unioning* a scoped, recent `raw/` read with the already-published
+     `staging/` output (the new read always wins for any overlapping `transaction_id`, since it
+     reflects `raw/`'s current state and the existing row is a stale copy from a prior run) and
+     dedupes on `transaction_id`. Correctness comes entirely from durable Blob Storage now, not
+     from anything surviving locally between runs - verified by deleting the local `.duckdb` file
+     before an `azure`-target run (deliberately simulating CI's ephemeral runner) and confirming
+     it's both fast (~43s, not ~8 min) *and* correct (right row count, no duplicates, a genuinely
+     new `raw/` transaction correctly picked up).
+  The watermark computation (`incremental_scan_from()`) that both `stg_transactions` and
+  `export_staging_transactions.sql` key off comes from `staging/`'s already-published Parquet -
+  parsing `transaction_year=`/`transaction_month=` straight out of `glob()`'s returned path
+  strings (~1s), not `read_parquet(..., union_by_name=true)` (has to open every matching file's
+  footer, ~24s for 85 partitions - an earlier version did this and it was part of what made a
+  since-fixed CI run look hung). `scoped_raw_transactions_source(scan_from)` takes the
+  already-computed watermark as a parameter now (not `is_incremental()`-gated internally), and
+  builds a `read_json([...])` call over only the candidate months (existence-checked via `glob()`
   first and filtered — DuckDB's `read_json` hard-errors if *any* path in a multi-glob list matches
-  zero files, even when others match fine); `export_staging_transactions.sql` uses the same
+  zero files, even when others match fine). `export_staging_transactions.sql` uses the same
   watermark as a `WHERE created_at >=` filter, so DuckDB's partitioned `COPY` only rewrites
   partitions that could plausibly have changed (confirmed empirically: it leaves partitions outside
-  the current result set untouched, doesn't delete them). Net effect on real data for **repeated
-  local `dbt build` runs on one machine**: ~8 min → ~65s.
-  **This does not help CI at all.** `scoped_raw_transactions_source()` only scopes the read when
-  `is_incremental()` is true, which requires `stg_transactions`'s local relation to already exist -
-  but GitHub Actions runners are ephemeral, so that relation *never* exists at the start of any CI
-  run. Every `publish` job run therefore falls through to `full_raw_transactions_scan()` (the
-  complete unscoped read), same as before this was built. Confirmed directly against DuckDB's own
-  progress bar (bypassing dbt entirely) that this full `read_json` over ~5,000 individual files now
-  takes ~17-20 minutes, not the ~8 min originally measured - what looked like CI hanging/timing out
-  during investigation was actually just this, running to a real (if slow) completion, not a bug.
-  A correct fix needs `stg_transactions` to stop depending on local-table persistence altogether -
-  e.g., union the scoped raw/ read with the existing durable `staging/` output and dedupe on
-  `transaction_id` directly in the model, rather than routing through dbt's incremental
-  materialization's merge-against-`{{ this }}` semantics. Not yet built - a real redesign of the
-  model, not a tweak, deliberately left for explicit go-ahead rather than done unprompted.
-  Separately (real, worth keeping regardless of the above): the watermark itself was switched from
-  `read_parquet(..., union_by_name=true)` (has to open every matching file's footer to compute
-  `max(created_at)` - ~24s for 85 partitions) to parsing `transaction_year=`/`transaction_month=`
-  straight out of `glob()`'s returned path strings (~1s) - a listing operation instead of a data
-  read, so it stays cheap regardless of how many partitions accumulate.
-  The margin is a bounded risk, not a precise cutoff — reconciliation can write backdated
-  transactions to older `raw/` paths (that's its whole job per
-  [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)), and a window scoped
-  exactly to the watermark would silently stop seeing those the moment the watermark moves past
-  them. `.github/workflows/dbt.yml` now has a second weekly cron (`0 5 * * 0`) that runs
+  the current result set untouched, doesn't delete them).
+  The margin (`incremental_lookback_days` var, default 30 days) is a bounded risk, not a precise
+  cutoff — reconciliation can write backdated transactions to older `raw/` paths (that's its whole
+  job per [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)), and a window
+  scoped exactly to the watermark would silently stop seeing those the moment the watermark moves
+  past them. `.github/workflows/dbt.yml` has a second weekly cron (`0 5 * * 0`) that runs
   `dbt build --target azure --full-refresh` as the actual backstop closing that gap regardless of
   margin size, distinguished from the nightly incremental cron via `github.event.schedule`.
   **Gotcha:** `run_query()`'s result isn't safe to use during dbt's parse-only introspection pass
   (which every invocation does, to extract `ref()`/`source()` dependencies, before any real
   connection exists) — calling `.columns[...]` on it there throws an opaque `'None' has no
-  attribute 'table'`. `stg_transactions.sql` dodged this by accident (its `is_incremental()` check
-  short-circuits before ever reaching `run_query()` during that pass); `export_staging_transactions.sql`
-  doesn't have an equivalent natural guard (it's `external`, not `incremental`, so `is_incremental()`
-  there is always false and can't be used as the guard either), so `incremental_scan_from()`
-  explicitly checks dbt's `execute` flag (true only during real execution) before touching
-  `run_query()`.
+  attribute 'table'`. `incremental_scan_from()` explicitly checks dbt's `execute` flag (true only
+  during real execution) before touching `run_query()`, since nothing calls it in a way that
+  short-circuits before reaching `run_query()` for free anymore.
+  **Gotcha #2:** Jinja's `{%- -%}` whitespace trimming can merge a SQL line comment with the code
+  on the *next* line if there's nothing but whitespace and a trimmed tag between them - `-- some
+  comment\n\n{%- set x = ... -%}\n\nwith y as (` can render as `-- some comment...with y as (` all
+  on one physical line, silently swallowing `with y as (` into the comment. Caused a genuinely
+  confusing "syntax error near )" pointing at an unrelated line. Plain `{% set %}` (no trim marks)
+  avoided it.
 - **`staging/` and `marts/` are now real dbt outputs, not just provisioned containers.** The 4
   `mart_*` models are materialized `external` (DuckDB `COPY ... TO ... FORMAT PARQUET`), writing
   the exact filenames the spec's Storage section names (`marts/spend_by_category.parquet`, etc,
-  not `mart_spend_by_category.parquet`). `stg_transactions` itself stays `incremental`/in-catalog
-  (its merge logic needs that); a thin sibling model, `export_staging_transactions`, republishes
-  its current contents to `staging/` as Parquet Hive-partitioned by `transaction_year`/
+  not `mart_spend_by_category.parquet`). `stg_transactions` itself stays a plain in-catalog
+  `table` (see the incremental-scoping bullet above for why it's not `incremental`); a thin
+  sibling model, `export_staging_transactions`, republishes its current contents to `staging/` as
+  Parquet Hive-partitioned by `transaction_year`/
   `transaction_month` — a separate model because dbt-duckdb's `external` materialization always
   does a full rewrite and can't also be `incremental`. `options: {overwrite_or_ignore: 'true'}`
   keeps partitioned reruns idempotent (DuckDB errors on rerun into an existing partition dir

@@ -1,26 +1,22 @@
-{{
-    config(
-        materialized='incremental',
-        unique_key='transaction_id',
-        incremental_strategy='merge'
-    )
-}}
+{{ config(materialized='table') }}
 
--- Reconciliation is the source of truth over webhook deliveries (docs/decisions/0001), so
--- when the same transaction_id somehow shows up more than once in a run, reconciliation wins.
+-- Deliberately NOT dbt's `incremental` materialization - see dbt/macros/incremental_scoping.sql
+-- for why (GitHub Actions runners are ephemeral, so a version gated on is_incremental() silently
+-- never activated in CI - every run fell through to a full unscoped raw/ scan regardless).
+-- Instead this is rebuilt fresh every run by unioning a scoped raw/ read with the already-
+-- published staging/ output: correctness doesn't depend on any local state surviving between
+-- runs, since "old" data comes from durable Blob Storage and only "new" data comes from raw/.
 --
--- Reads via scoped_raw_transactions_source(), not {{ source('raw', 'transactions') }} directly -
--- see dbt/macros/incremental_scoping.sql for why (scans a recent date window instead of every
--- file in raw/ on every run, once there's enough history for that to matter). The source is still
--- declared in _sources.yml for docs/lineage and ad-hoc querying, just not used for this model's
--- actual read.
-with source as (
+-- Reconciliation is the source of truth over webhook deliveries (docs/decisions/0001) - within a
+-- single raw/ read that only matters if the same transaction_id somehow appears twice (shouldn't
+-- happen given raw/'s one-blob-per-id naming, kept as a defensive tie-break). Between the new
+-- read and the existing staging/ output, the new read always wins for any overlapping
+-- transaction_id, since it reflects raw/'s current state and the existing row is a stale copy
+-- from a prior run - that's the whole point of re-scanning the overlap window.
 
-    select * from {{ scoped_raw_transactions_source() }}
+{% set scan_from = incremental_scan_from() %}
 
-),
-
-renamed as (
+with new_read as (
 
     select
         transaction.id as transaction_id,
@@ -46,34 +42,72 @@ renamed as (
             partition by transaction.id
             order by (source = 'reconciliation') desc
         ) as row_num
-    from source
+    from {{ scoped_raw_transactions_source(scan_from) }}
+
+),
+
+new_deduped as (
+
+    select
+        transaction_id,
+        account_id,
+        amount_minor_units,
+        currency,
+        created_at,
+        settled_at,
+        settled_at is not null as is_settled,
+        decline_reason is not null as is_declined,
+        description,
+        category,
+        notes,
+        is_load,
+        decline_reason,
+        merchant_id,
+        merchant_name,
+        merchant_category,
+        merchant_emoji,
+        merchant_online,
+        merchant_atm,
+        ingestion_source
+    from new_read
+    where row_num = 1
 
 )
 
-select
-    transaction_id,
-    account_id,
-    amount_minor_units,
-    currency,
-    created_at,
-    settled_at,
-    settled_at is not null as is_settled,
-    decline_reason is not null as is_declined,
-    description,
-    category,
-    notes,
-    is_load,
-    decline_reason,
-    merchant_id,
-    merchant_name,
-    merchant_category,
-    merchant_emoji,
-    merchant_online,
-    merchant_atm,
-    ingestion_source
-from renamed
-where row_num = 1
+{% if scan_from is not none %}
+,
 
-{% if is_incremental() %}
-    and created_at > (select coalesce(max(created_at), '1900-01-01'::timestamp) from {{ this }})
+existing as (
+
+    select
+        transaction_id,
+        account_id,
+        amount_minor_units,
+        currency,
+        created_at,
+        settled_at,
+        is_settled,
+        is_declined,
+        description,
+        category,
+        notes,
+        is_load,
+        decline_reason,
+        merchant_id,
+        merchant_name,
+        merchant_category,
+        merchant_emoji,
+        merchant_online,
+        merchant_atm,
+        ingestion_source
+    from read_parquet('{{ blob_location("staging") }}/**/*.parquet', union_by_name=true)
+    where transaction_id not in (select transaction_id from new_deduped)
+
+)
+
+select * from new_deduped
+union all
+select * from existing
+{% else %}
+select * from new_deduped
 {% endif %}

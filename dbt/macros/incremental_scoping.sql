@@ -1,14 +1,18 @@
 {#
   Scopes stg_transactions' raw/ read to a recent date window instead of scanning every file in
-  raw/ on every run - the naive full glob became an ~8 minute (and growing) bottleneck once raw/
-  held years of individual per-transaction JSON files (one blob per transaction, by design - see
-  functions/shared/blob_writer.py).
+  raw/ on every run - the naive full glob became an ~8 minute (and growing, now ~17-20 min at
+  ~5,000 files) bottleneck once raw/ held years of individual per-transaction JSON files (one
+  blob per transaction, by design - see functions/shared/blob_writer.py).
 
   The watermark comes from staging/'s already-published Parquet (durable, in Blob Storage), not
-  the local incremental table ({{ this }}). GitHub Actions runners are ephemeral, so the local
-  DuckDB catalog doesn't exist yet when CI's `publish` job starts - reading the watermark from
-  durable storage instead means this scoping actually helps in CI, not just when running dbt
-  repeatedly on one machine.
+  the local incremental table. This isn't just a nice-to-have: stg_transactions is materialized as
+  a plain `table`, not `incremental` - it's rebuilt fresh every run by unioning this scoped raw/
+  read with the *existing* staging/ output (see stg_transactions.sql), rather than merging into a
+  persisted local relation the way dbt's `incremental` materialization does. That's deliberate:
+  GitHub Actions runners are ephemeral, so a local relation never survives between CI runs, which
+  made an earlier is_incremental()-gated version of this scoping silently inert in CI - every
+  `publish` job fell through to a full unscoped scan regardless, since `is_incremental()` was
+  always false there. Durable storage doesn't have that problem, so everything here keys off it.
 
   incremental_lookback_days (dbt_project.yml var, default 30) is a safety margin, not a precise
   cutoff: reconciliation can write backdated transactions to older raw/ paths - that's its whole
@@ -48,29 +52,26 @@
 {% endmacro %}
 
 {#
-  Returns None if incremental scoping shouldn't apply (--full-refresh / no staging/ output yet),
-  otherwise the margin-adjusted watermark. Shared by scoped_raw_transactions_source() (what
-  stg_transactions reads from raw/) and export_staging_transactions.sql (what it re-publishes to
-  staging/), so the two can't drift out of sync with each other - they're scoping two different
-  things (a read glob vs. a WHERE filter) but need to agree on the same cutoff, since a partition
-  export_staging_transactions doesn't re-publish this run is one stg_transactions is trusting
-  didn't change.
+  Returns None if scoping shouldn't apply (--full-refresh / no staging/ output yet), otherwise the
+  margin-adjusted watermark. Shared by stg_transactions.sql (both to scope its raw/ read via
+  scoped_raw_transactions_source() below, and to decide whether it needs to union in the existing
+  staging/ output at all) and export_staging_transactions.sql (to scope its WHERE filter) - all
+  three need to agree on the same cutoff, or stg_transactions and its own published output could
+  disagree about which months are "new" vs "already covered".
 
-  Deliberately does NOT check is_incremental() - that reflects whether the *current* model being
-  compiled is doing a full build, which is only meaningful for stg_transactions itself (the one
-  model actually materialized `incremental`). export_staging_transactions is `external`, so
-  is_incremental() would always evaluate false there regardless of what stg_transactions is doing -
-  silently defeating the scoping entirely if this macro relied on it. scoped_raw_transactions_source()
-  below checks is_incremental() itself, for itself, before ever calling this.
+  No longer gated on is_incremental(): an earlier version only called this when
+  is_incremental() was true, which seemed reasonable (stg_transactions was the one model actually
+  materialized `incremental`) but silently defeated the whole thing in CI - GitHub Actions runners
+  are ephemeral, so the local relation is_incremental() checks for never exists there, meaning it
+  was always false and this scoping never activated on a single real CI run. stg_transactions is
+  materialized as a plain `table` now specifically so correctness doesn't depend on local state -
+  see its own file for how.
 
   Guarded by `execute`: dbt renders model Jinja during a parse-only introspection pass too (to
   extract ref()/source() dependencies for the DAG), before any real query connection exists -
   every dbt invocation does this, including plain `dbt parse`. run_query()'s result isn't safe to
   process in that pass (dbt-core returns something that isn't a real result table, and calling
-  .columns on it throws a rather opaque 'None' has no attribute 'table'). `execute` is dbt's own
-  flag for "this is the real run, not just parsing" - stg_transactions.sql happened to dodge this
-  by accident, since is_incremental() short-circuits before ever reaching run_query() during that
-  pass, but nothing here does that for free, so it's checked explicitly.
+  .columns on it throws a rather opaque 'None' has no attribute 'table').
 #}
 {% macro incremental_scan_from() %}
   {%- if not execute or flags.FULL_REFRESH -%}
@@ -106,20 +107,12 @@
   {{ return(latest_month_start - modules.datetime.timedelta(days=margin_days)) }}
 {% endmacro %}
 
-{% macro scoped_raw_transactions_source() %}
-  {#- is_incremental() is checked here, not inside incremental_scan_from() - see that macro's
-      docstring for why. This is the one place it's actually meaningful: stg_transactions is the
-      model materialized `incremental`, so this correctly detects "the local relation doesn't
-      exist yet, dbt is about to do a full rebuild" and matches that with a full raw/ read.
-      KNOWN GAP: on GitHub Actions' ephemeral runners, the local relation never exists at the
-      start of any run, so is_incremental() is always false there and this always falls through
-      to full_raw_transactions_scan() - the scoping below only actually activates for repeated
-      local `dbt build` invocations on one machine, not in CI. See CLAUDE.md. -#}
-  {%- if not is_incremental() -%}
-    {{ return(full_raw_transactions_scan()) }}
-  {%- endif -%}
-
-  {%- set scan_from = incremental_scan_from() -%}
+{#
+  Takes the already-computed scan_from (see incremental_scan_from()) rather than calling it
+  itself, so stg_transactions.sql can compute it once and reuse the same value both here and to
+  decide whether it needs to union in the existing staging/ output.
+#}
+{% macro scoped_raw_transactions_source(scan_from) %}
   {%- if scan_from is none -%}
     {{ return(full_raw_transactions_scan()) }}
   {%- endif -%}
