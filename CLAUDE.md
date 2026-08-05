@@ -171,16 +171,10 @@ allocation issue, so switching regions won't help.
 **Not yet built:**
 - MCP server.
 - Event Grid (blob-created) trigger for the dbt pipeline — currently push-to-master/nightly
-  cron/manual only (`.github/workflows/dbt.yml`), per the spec's fallback path; the near-real-time
-  event-driven path is deferred. **Deliberately left blocked on the Function App quota, not
-  worked around:** the spec's design needs *some* compute to react to the Event Grid event and
-  call GitHub's `repository_dispatch` API — the natural choice is a 4th trigger on the existing
-  Function App, which is blocked by the exact same quota. A direct Event Grid → GitHub webhook
-  isn't viable either: Event Grid requires webhook endpoints to complete a validation handshake on
-  subscription creation, and GitHub's API doesn't implement it, so Azure rejects creating that
-  subscription outright, quota aside. A compute-free stopgap (Event Grid → Storage Queue, short-
-  interval CI polling) was considered and explicitly rejected — not worth building something that
-  would just get thrown away once the Function App exists.
+  cron/manual only (`.github/workflows/dbt.yml`), per the spec's fallback path. Design + rationale
+  for why it's deliberately left blocked on the Function App quota, not worked around (a compute-
+  free stopgap was considered and rejected), is in
+  [ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md).
 - dbt docs hosting, per the spec's Future Enhancements section (no CI step generates docs currently
   either — dropped since nothing hosted them).
 - Backfill-on-demand for a specific date range (spec mentions it; not part of the 3 functions ADR-0004
