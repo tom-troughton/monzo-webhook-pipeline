@@ -34,6 +34,12 @@ variable "monzo_refresh_token" {
   sensitive   = true
 }
 
+variable "owner_object_id" {
+  description = "The human deployer's AAD object ID. NOT data.azurerm_client_config.current.object_id - that resolves to whoever is CURRENTLY authenticated (the GitHub Actions service principal in CI, not necessarily this person), which caused CI to see this person fall out of a for_each set and destroy their own Key Vault access."
+  type        = string
+  default     = "3e0da827-6351-4cf8-8fe3-8c84f46f4930"
+}
+
 variable "github_org" {
   description = "GitHub org/user that owns the repo, for scoping the OIDC federated credential"
   type        = string

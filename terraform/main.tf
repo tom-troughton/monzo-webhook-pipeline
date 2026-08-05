@@ -54,7 +54,7 @@ module "key_vault" {
   resource_group_name = azurerm_resource_group.main.name
 
   secret_officer_object_ids = [
-    data.azurerm_client_config.current.object_id,
+    var.owner_object_id,
     module.github_oidc.principal_id,
   ]
 
@@ -107,7 +107,7 @@ data "azurerm_storage_account" "tfstate" {
 resource "azurerm_role_assignment" "tfstate_owner" {
   scope                = data.azurerm_storage_account.tfstate.id
   role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = data.azurerm_client_config.current.object_id
+  principal_id         = var.owner_object_id
 }
 
 resource "azurerm_role_assignment" "tfstate_github_actions" {
