@@ -35,7 +35,7 @@ resource "azurerm_policy_definition" "restrict_app_service_sku" {
   policy_type  = "Custom"
   mode         = "All"
   display_name = "Restrict App Service Plan SKU to Consumption/Free tiers"
-  description  = "Only Consumption (Y1) or Free (F1) App Service Plan SKUs are allowed, per ADR-0003."
+  description  = "Only Consumption (Y1), Flex Consumption (FC1), or Free (F1) App Service Plan SKUs are allowed, per ADR-0003/0012."
 
   policy_rule = jsonencode({
     if = {

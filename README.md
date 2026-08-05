@@ -111,11 +111,15 @@ DuckDB · dbt · GitHub Actions · MCP
   run the tests). Runs locally/on-demand over stdio (`python -m mcp_server.server`), not hosted, per
   the spec's intent.
 
-**Blocked:** `terraform apply` for the Function App is currently held up by an Azure
-subscription-level App Service quota (`Y1` VMs = 0) that persists across every region tried. A
-support ticket is open. Left in place deliberately as an honest snapshot rather than worked around
-with a paid SKU — see the "Cost discipline" constraint in [CLAUDE.md](CLAUDE.md). This is also why
-`raw/` is populated by a manual backfill script for now rather than the webhook/reconciliation path.
+**Resolved:** the `Y1` Consumption plan's App Service quota is still stuck at 0 subscription-wide —
+Azure's Capacity Management team confirmed it's a genuine capacity constraint with no committed
+timeline, not a policy issue. Rather than keep waiting, switched to **Flex Consumption (`FC1`)** — a
+different App Service Plan SKU/quota dimension, still fully consumption-priced. `func-monzode-dev`
+is now deployed and running. See [ADR-0012](docs/decisions/0012-flex-consumption-hosting-plan.md).
+
+**Still not live:** the actual Function code hasn't been published yet, so the webhook/queue/
+reconciliation path isn't active — `raw/` still reflects a one-off manual backfill rather than real
+ingestion.
 
 **Not yet built:** the Event Grid (blob-created) trigger for near-real-time dbt runs (currently
 push/cron/manual only — see [ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md)

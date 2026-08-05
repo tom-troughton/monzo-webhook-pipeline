@@ -50,7 +50,8 @@ for the reasoning already applied to the Function App hosting plan.
 **Built:**
 - Terraform: resource group, storage account (`raw/`, `staging/`, `marts/` containers, private
   access), Storage Queue (`monzo-webhook`), Key Vault module (`terraform/modules/key_vault/`),
-  Function App module (`terraform/modules/function_app/` — Consumption Linux Function App,
+  Function App module (`terraform/modules/function_app/` — Flex Consumption (`FC1`) Function App,
+  deployed and `Running` as of [ADR-0012](docs/decisions/0012-flex-consumption-hosting-plan.md);
   Application Insights, managed-identity-only storage/Key Vault access), `cost_guardrails` module
   (`terraform/modules/cost_guardrails/` — subscription-wide Azure Policy: deny VM creation, restrict
   App Service Plan and Storage Account SKUs to non-Premium tiers), `github_oidc` module
@@ -245,12 +246,23 @@ for the reasoning already applied to the Function App hosting plan.
   config, same as any other local MCP server. Not wired into CI (no test-running workflow exists
   for `functions/` either - pytest is run manually for both right now).
 
-**Partially applied:** `terraform apply` for the Function App module is blocked on an Azure
-subscription-level App Service quota (`Y1 VMs` / `Total Regional VMs` = 0). Self-service quota
-increase failed even after upgrading to Pay-As-You-Go; a support ticket is filed and pending. Confirmed
-via direct ARM API checks that the same 0-quota holds across multiple regions (uksouth, westeurope,
-northeurope, eastus, swedencentral) — this is a subscription-wide review hold, not a per-region
-allocation issue, so switching regions won't help.
+**Resolved (was "Partially applied"):** the `Y1` Consumption plan's App Service quota is still stuck
+at 0 subscription-wide (Azure's Capacity Management team responded to the quota-increase request
+with an explicit "unable to approve at this time... additional capacity" - no committed timeline;
+ticket left open, set to notify on fulfillment). Rather than keep waiting, switched the Function App
+module to **Flex Consumption (`FC1`)** instead of `Y1` — a different App Service Plan SKU/quota
+dimension, still fully consumption-priced, no Premium tier involved. `terraform apply` succeeded:
+`func-monzode-dev` is `Running` at `func-monzode-dev.azurewebsites.net` for the first time. See
+[ADR-0012](docs/decisions/0012-flex-consumption-hosting-plan.md) for the full switch (new
+`app-package` deployment container, `AzureWebJobsStorage__accountName` identity-based wiring
+replacing the old top-level args, explicit `maximum_instance_count`/`instance_memory_in_mb`). One
+unrelated snag fixed along the way: `cost_guardrails`' SKU allowlist predated Flex Consumption and
+rejected `FC1` on the first attempt - added it to `allowed_app_service_plan_skus`.
+
+**Still not done:** the actual Function code hasn't been published yet (`func azure functionapp
+publish`, `deploy.yml`'s `deploy-functions` job) - infra exists, but the webhook/queue/reconciliation
+path isn't live until that runs. `raw/`/`staging/`/`marts/` still reflect the one-off manual backfill,
+not the real ingestion path, until then.
 
 **Not yet built:**
 - Event Grid (blob-created) trigger for the dbt pipeline — currently push-to-master/nightly
