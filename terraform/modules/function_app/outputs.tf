@@ -9,3 +9,7 @@ output "principal_id" {
 output "default_hostname" {
   value = azurerm_linux_function_app.main.default_hostname
 }
+
+output "application_insights_id" {
+  value = azurerm_application_insights.main.id
+}
