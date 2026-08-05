@@ -1,0 +1,3 @@
+monzo_client_id     = "your-monzo-client-id"
+monzo_client_secret = "your-monzo-client-secret"
+monzo_refresh_token = "your-monzo-refresh-token"

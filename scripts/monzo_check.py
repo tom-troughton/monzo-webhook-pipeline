@@ -1,13 +1,25 @@
-"""Sanity check: confirm the stored access token can see real account data."""
-import os
-
+"""Sanity check that mirrors the reconciliation job's token-refresh pattern:
+refresh the access token using Key Vault's stored refresh token, use it,
+then save Monzo's rotated refresh token back to Key Vault.
+"""
 import requests
-from dotenv import load_dotenv
 
-ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
-load_dotenv(ENV_PATH)
+from kv import get_secret, set_secret
 
-headers = {"Authorization": f"Bearer {os.environ['MONZO_ACCESS_TOKEN']}"}
+CLIENT_ID = get_secret("monzo-client-id")
+CLIENT_SECRET = get_secret("monzo-client-secret")
+
+token_response = requests.post("https://api.monzo.com/oauth2/token", data={
+    "grant_type": "refresh_token",
+    "client_id": CLIENT_ID,
+    "client_secret": CLIENT_SECRET,
+    "refresh_token": get_secret("monzo-refresh-token"),
+})
+token_response.raise_for_status()
+tokens = token_response.json()
+set_secret("monzo-refresh-token", tokens["refresh_token"])
+
+headers = {"Authorization": f"Bearer {tokens['access_token']}"}
 
 whoami = requests.get("https://api.monzo.com/ping/whoami", headers=headers)
 whoami.raise_for_status()

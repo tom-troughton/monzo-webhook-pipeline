@@ -1,3 +1,5 @@
+data "azurerm_client_config" "current" {}
+
 resource "random_string" "storage_suffix" {
   length  = 6
   special = false
@@ -32,4 +34,19 @@ resource "azurerm_storage_container" "layers" {
   name                  = each.value
   storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
+}
+
+module "key_vault" {
+  source = "./modules/key_vault"
+
+  project_name        = var.project_name
+  environment         = var.environment
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+
+  secret_officer_object_ids = [data.azurerm_client_config.current.object_id]
+
+  monzo_client_id     = var.monzo_client_id
+  monzo_client_secret = var.monzo_client_secret
+  monzo_refresh_token = var.monzo_refresh_token
 }

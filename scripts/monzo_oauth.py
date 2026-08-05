@@ -1,5 +1,5 @@
 """One-time bootstrap: run the Monzo OAuth2 authorization-code flow locally
-and write the resulting access/refresh tokens to .env.
+and store the resulting refresh token in Key Vault.
 """
 import os
 import secrets
@@ -8,13 +8,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlencode, urlparse, parse_qs
 
 import requests
-from dotenv import load_dotenv, set_key
 
-ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
-load_dotenv(ENV_PATH)
+from kv import get_secret, set_secret
 
-CLIENT_ID = os.environ["MONZO_CLIENT_ID"]
-CLIENT_SECRET = os.environ["MONZO_CLIENT_SECRET"]
+CLIENT_ID = get_secret("monzo-client-id")
+CLIENT_SECRET = get_secret("monzo-client-secret")
 REDIRECT_URI = os.environ.get("MONZO_REDIRECT_URI", "http://localhost:5000/callback")
 
 result = {}
@@ -70,9 +68,8 @@ def main():
     print("Now open the Monzo app - you should see a request to confirm access for this client.")
     input("Press Enter once you've approved it in the app...")
 
-    set_key(ENV_PATH, "MONZO_ACCESS_TOKEN", tokens["access_token"])
-    set_key(ENV_PATH, "MONZO_REFRESH_TOKEN", tokens["refresh_token"])
-    print(f"Tokens written to {ENV_PATH}")
+    set_secret("monzo-refresh-token", tokens["refresh_token"])
+    print("Refresh token stored in Key Vault.")
 
 
 if __name__ == "__main__":

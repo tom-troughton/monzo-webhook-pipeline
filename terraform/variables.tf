@@ -15,3 +15,21 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "monzo_client_id" {
+  description = "Monzo OAuth client ID"
+  type        = string
+  sensitive   = true
+}
+
+variable "monzo_client_secret" {
+  description = "Monzo OAuth client secret"
+  type        = string
+  sensitive   = true
+}
+
+variable "monzo_refresh_token" {
+  description = "Monzo OAuth refresh token (seed value only - the reconciliation Function rotates this in Key Vault directly after first use)"
+  type        = string
+  sensitive   = true
+}
