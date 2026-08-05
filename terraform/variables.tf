@@ -33,3 +33,14 @@ variable "monzo_refresh_token" {
   type        = string
   sensitive   = true
 }
+
+variable "github_org" {
+  description = "GitHub org/user that owns the repo, for scoping the OIDC federated credential"
+  type        = string
+  default     = "tom-troughton"
+}
+
+variable "github_repo" {
+  type    = string
+  default = "monzo-webhook-pipeline"
+}

@@ -78,3 +78,35 @@ resource "azurerm_role_assignment" "function_app_kv_reader" {
   role_definition_name = "Key Vault Secrets User"
   principal_id         = module.function_app.principal_id
 }
+
+module "github_oidc" {
+  source = "./modules/github_oidc"
+
+  project_name = var.project_name
+  github_org   = var.github_org
+  github_repo  = var.github_repo
+
+  resource_group_id = azurerm_resource_group.main.id
+  subscription_id   = data.azurerm_client_config.current.subscription_id
+}
+
+# Remote state backend - resource group, storage account and container are deliberately NOT
+# managed here (see docs/decisions/0009-remote-state-backend.md): a config must never be able to
+# destroy the very backend holding its own state mid-operation. RBAC grants onto it are safe to
+# manage here since they don't risk deleting the backend itself.
+data "azurerm_storage_account" "tfstate" {
+  name                = "stmonzodetfstate130dc0"
+  resource_group_name = "rg-monzode-tfstate"
+}
+
+resource "azurerm_role_assignment" "tfstate_owner" {
+  scope                = data.azurerm_storage_account.tfstate.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_role_assignment" "tfstate_github_actions" {
+  scope                = data.azurerm_storage_account.tfstate.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = module.github_oidc.principal_id
+}

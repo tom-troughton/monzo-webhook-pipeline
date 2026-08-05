@@ -1,0 +1,96 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "terraform/**"
+      - "functions/**"
+      - ".github/workflows/deploy.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "terraform/**"
+      - "functions/**"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  ARM_USE_OIDC: true
+
+jobs:
+  terraform:
+    name: Terraform plan/apply
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    outputs:
+      function_app_name: ${{ steps.output.outputs.function_app_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.9"
+
+      - run: terraform fmt -check -recursive
+
+      - run: terraform init -input=false
+
+      - name: Terraform plan
+        run: |
+          terraform plan -input=false -out=tfplan \
+            -var="monzo_client_id=ci-placeholder-ignored-after-first-apply" \
+            -var="monzo_client_secret=ci-placeholder-ignored-after-first-apply" \
+            -var="monzo_refresh_token=ci-placeholder-ignored-after-first-apply"
+
+      - name: Terraform apply
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Read function app name
+        id: output
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        run: echo "function_app_name=$(terraform output -raw function_app_name)" >> "$GITHUB_OUTPUT"
+
+  deploy-functions:
+    name: Deploy Function App code
+    needs: terraform
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+
+      - name: Publish
+        working-directory: functions
+        run: func azure functionapp publish ${{ needs.terraform.outputs.function_app_name }} --python

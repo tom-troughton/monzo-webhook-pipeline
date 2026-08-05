@@ -47,7 +47,16 @@ for the reasoning already applied to the Function App hosting plan.
   Function App module (`terraform/modules/function_app/` — Consumption Linux Function App,
   Application Insights, managed-identity-only storage/Key Vault access), `cost_guardrails` module
   (`terraform/modules/cost_guardrails/` — subscription-wide Azure Policy: deny VM creation, restrict
-  App Service Plan and Storage Account SKUs to non-Premium tiers).
+  App Service Plan and Storage Account SKUs to non-Premium tiers), `github_oidc` module
+  (`terraform/modules/github_oidc/` — AD app + federated credentials for master-branch pushes and
+  PRs, per [ADR-0005](docs/decisions/0005-oidc-for-github-actions.md)).
+- **Remote Terraform state** — Azure Blob Storage (`rg-monzode-tfstate`, AAD-RBAC auth, not account
+  keys), so CI and local runs share state. The backend storage account/container are deliberately
+  NOT Terraform-managed — see [ADR-0009](docs/decisions/0009-remote-state-backend.md).
+- `.github/workflows/deploy.yml` — terraform plan on PRs, plan+apply on push to `master` via OIDC
+  (no stored Azure secret), then `func azure functionapp publish` for the Function code. Requires
+  repo variables `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID` (not secrets - OIDC
+  needs no client secret) - values are in `terraform output github_actions_client_id` etc.
 - `functions/` — Function App code (Python v2 model, single `function_app.py`): HTTP webhook
   (validates path secret + payload, enqueues), Queue-triggered raw writer (idempotent blob naming by
   `transaction_id`), Timer-triggered reconciliation (6-hourly). Shared logic in `functions/shared/`
@@ -67,9 +76,8 @@ northeurope, eastus, swedencentral) — this is a subscription-wide review hold,
 allocation issue, so switching regions won't help.
 
 **Not yet built:**
-- dbt project.
+- dbt project (and its GitHub Actions workflow - deferred until the dbt project exists).
 - MCP server.
-- GitHub Actions workflows (infra deploy, function deploy, dbt pipeline, CI).
 - Backfill-on-demand for a specific date range (spec mentions it; not part of the 3 functions ADR-0004
   scopes, deferred).
 - Hierarchical Namespace (ADLS Gen2) on the storage account — proposed, not yet enabled. See

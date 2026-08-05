@@ -47,6 +47,12 @@ resource "azurerm_key_vault_secret" "monzo_client_id" {
   value        = var.monzo_client_id
   key_vault_id = azurerm_key_vault.main.id
   depends_on   = [azurerm_role_assignment.secrets_officer]
+
+  # Seeded once from the local bootstrap; CI's terraform apply passes a placeholder here
+  # (never a real secret) since the value is never touched after initial creation.
+  lifecycle {
+    ignore_changes = [value]
+  }
 }
 
 resource "azurerm_key_vault_secret" "monzo_client_secret" {
@@ -54,6 +60,10 @@ resource "azurerm_key_vault_secret" "monzo_client_secret" {
   value        = var.monzo_client_secret
   key_vault_id = azurerm_key_vault.main.id
   depends_on   = [azurerm_role_assignment.secrets_officer]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
 }
 
 resource "azurerm_key_vault_secret" "monzo_refresh_token" {
