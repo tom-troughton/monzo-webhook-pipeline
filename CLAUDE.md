@@ -76,7 +76,13 @@ for the reasoning already applied to the Function App hosting plan.
   mocked, no real Monzo/Azure calls).
 - `scripts/monzo_oauth.py` — one-time interactive OAuth grant, now built on `functions/shared/`.
   `scripts/monzo_check.py`, `scripts/monzo_transactions.py` — Monzo API sanity checks, same shared
-  modules.
+  modules. `scripts/backfill_transactions.py` — one-off full-history backfill into `raw/` (see
+  below). `scripts/query_marts.py` — queries the real `marts/*.parquet` files straight from Blob
+  Storage (own bare `duckdb.connect()` + `credential_chain` secret, independent of the dbt
+  project's connection) - no-arg prints all 4 marts, or pass a SQL string to run your own query
+  against them (they're pre-registered as views named after the mart, e.g. `subscriptions`).
+  Stopgap for the not-yet-built MCP server, which will expose curated versions of these same
+  queries as tools instead of raw SQL.
 - `dbt/` — dbt-duckdb project, verified end-to-end against both local fixtures and the real `raw/`
   container (`dbt build` passes: 10 models, 25 data tests, either way). `stg_transactions`
   (incremental, merge on `transaction_id`, reconciliation wins over webhook per
