@@ -54,3 +54,10 @@ models:
           - accepted_values:
               arguments:
                 values: ["webhook", "reconciliation"]
+
+  - name: export_staging_transactions
+    description: >
+      Publishes stg_transactions to the staging/ container as Parquet, Hive-partitioned by
+      transaction_year/transaction_month. A full rewrite each run (dbt-duckdb's `external`
+      materialization can't also be incremental) - stg_transactions itself still does the real
+      incremental merge against raw/, this just republishes its current contents to Blob Storage.

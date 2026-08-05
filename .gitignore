@@ -14,3 +14,4 @@ dbt/dev.duckdb.wal
 dbt/azure.duckdb
 dbt/azure.duckdb.wal
 dbt/.user.yml
+dbt/export/

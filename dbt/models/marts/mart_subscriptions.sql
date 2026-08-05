@@ -1,5 +1,7 @@
 -- Heuristic: a merchant charging the same amount in 2+ distinct calendar months looks recurring.
 -- Good enough for a personal-finance mart; not a general subscription-detection algorithm.
+{{ config(materialized='external', location=blob_location('marts', 'subscriptions.parquet')) }}
+
 with recurring_charges as (
     select
         merchant_id,

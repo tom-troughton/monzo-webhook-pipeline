@@ -78,7 +78,7 @@ for the reasoning already applied to the Function App hosting plan.
   `scripts/monzo_check.py`, `scripts/monzo_transactions.py` — Monzo API sanity checks, same shared
   modules.
 - `dbt/` — dbt-duckdb project, verified end-to-end against both local fixtures and the real `raw/`
-  container (`dbt build` passes: 9 models, 25 data tests, either way). `stg_transactions`
+  container (`dbt build` passes: 10 models, 25 data tests, either way). `stg_transactions`
   (incremental, merge on `transaction_id`, reconciliation wins over webhook per
   [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)) →
   `dim_account`/`dim_category`/`dim_merchant`/`fct_transactions` → `mart_spend_by_category`/
@@ -92,17 +92,34 @@ for the reasoning already applied to the Function App hosting plan.
   regenerate/re-upload via `python dbt/fixtures/generate_fixtures.py`. GitHub Actions OIDC has
   `Storage Blob Data Reader` on just the `raw` container (`terraform/main.tf`) for when the dbt CI
   workflow gets built — not wired up yet, `azure` target is currently run manually.
+- **`staging/` and `marts/` are now real dbt outputs, not just provisioned containers.** The 4
+  `mart_*` models are materialized `external` (DuckDB `COPY ... TO ... FORMAT PARQUET`), writing
+  the exact filenames the spec's Storage section names (`marts/spend_by_category.parquet`, etc,
+  not `mart_spend_by_category.parquet`). `stg_transactions` itself stays `incremental`/in-catalog
+  (its merge logic needs that); a thin sibling model, `export_staging_transactions`, republishes
+  its current contents to `staging/` as Parquet Hive-partitioned by `transaction_year`/
+  `transaction_month` — a separate model because dbt-duckdb's `external` materialization always
+  does a full rewrite and can't also be `incremental`. `options: {overwrite_or_ignore: 'true'}`
+  keeps partitioned reruns idempotent (DuckDB errors on rerun into an existing partition dir
+  without it). Where each writes to is resolved by the `blob_location()` macro
+  (`dbt/macros/blob_location.sql`): local `export/{container}/` folder for `dev`, real
+  `az://{container}/` for `azure` — same `target.name` check as the source, for the same reason
+  (see gotcha below). The `dev` target's `export/` output dir must exist before running (DuckDB
+  doesn't auto-create write directories on Windows) — `dbt/export/` is gitignored, not a fixture.
   **Gotcha:** dbt does *not* re-render Jinja inside `vars:` values in `dbt_project.yml` — a var set
-  to `"{{ 'x' if target.name == ... }}"` is passed through literally, not evaluated. The
-  `dev`/`azure` source-path switch had to live in `models/staging/_sources.yml`'s
-  `external_location` (rendered per-model, where `target.name` does work), not in a shared var.
+  to `"{{ 'x' if target.name == ... }}"` is passed through literally, not evaluated. Both the
+  `dev`/`azure` source-path switch (`models/staging/_sources.yml`'s `external_location`) and the
+  output-path switch (`blob_location()` macro) had to be plain Jinja in a model/macro context
+  (where `target.name` does resolve), not a project-level var.
   Also: each target uses its own local DuckDB file (`dev.duckdb`/`azure.duckdb`, gitignored) rather
   than `:memory:`, since an in-memory DB doesn't survive between separate `dbt` CLI invocations
   (breaks `dbt run` then `dbt show`), and a shared file would mix tables from both sources.
 - Reading the storage account's **data plane** needed an explicit RBAC grant even for the
   subscription owner — `Contributor` at the resource-group scope only covers control-plane
   operations, same gotcha the tfstate backend already required a workaround for. `terraform/main.tf`
-  grants the owner `Storage Blob Data Contributor` on the whole storage account.
+  grants the owner `Storage Blob Data Contributor` on the whole storage account (covers writing
+  `staging/`/`marts/` too — GitHub Actions OIDC only has read on `raw/` so far, since it can't run
+  the dbt pipeline yet anyway).
 
 **Partially applied:** `terraform apply` for the Function App module is blocked on an Azure
 subscription-level App Service quota (`Y1 VMs` / `Total Regional VMs` = 0). Self-service quota

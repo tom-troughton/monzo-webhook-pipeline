@@ -1,3 +1,5 @@
+{{ config(materialized='external', location=blob_location('marts', 'spend_by_category.parquet')) }}
+
 select
     f.transaction_month,
     c.category,

@@ -1,3 +1,5 @@
+{{ config(materialized='external', location=blob_location('marts', 'merchant_summary.parquet')) }}
+
 select
     m.merchant_id,
     m.merchant_name,

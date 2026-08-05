@@ -47,14 +47,18 @@ models:
                 field: category
 
   - name: mart_spend_by_category
-    description: Monthly spend total per category, excluding declined transactions.
+    description: >
+      Monthly spend total per category, excluding declined transactions. Written to
+      marts/spend_by_category.parquet (external materialization - full rewrite each run).
     columns:
       - name: total_spend
         data_tests:
           - not_null
 
   - name: mart_monthly_cashflow
-    description: Income, expenses and net cashflow per calendar month.
+    description: >
+      Income, expenses and net cashflow per calendar month. Written to
+      marts/monthly_cashflow.parquet (external materialization - full rewrite each run).
     columns:
       - name: transaction_month
         data_tests:
@@ -62,7 +66,9 @@ models:
           - not_null
 
   - name: mart_merchant_summary
-    description: Spend totals per merchant, excluding declined transactions.
+    description: >
+      Spend totals per merchant, excluding declined transactions. Written to
+      marts/merchant_summary.parquet (external materialization - full rewrite each run).
     columns:
       - name: merchant_id
         data_tests:
@@ -70,4 +76,6 @@ models:
           - not_null
 
   - name: mart_subscriptions
-    description: Merchants charging the same amount in 2+ distinct calendar months.
+    description: >
+      Merchants charging the same amount in 2+ distinct calendar months. Written to
+      marts/subscriptions.parquet (external materialization - full rewrite each run).

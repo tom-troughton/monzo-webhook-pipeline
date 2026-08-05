@@ -1,3 +1,5 @@
+{{ config(materialized='external', location=blob_location('marts', 'monthly_cashflow.parquet')) }}
+
 select
     transaction_month,
     sum(case when is_credit then amount else 0 end) as income,
