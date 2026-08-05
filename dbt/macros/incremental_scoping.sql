@@ -77,33 +77,44 @@
     {{ return(none) }}
   {%- endif -%}
 
+  {#- Watermark comes from the *partition path names* (a cheap glob/listing call, ~1s even for
+      85 partitions), not from reading any actual Parquet data. An earlier version used
+      `read_parquet(..., union_by_name=true)` to get max(created_at) directly, which has to open
+      and read every matching file's footer to do that union - ~24s locally for 85 partitions.
+      Parsing the latest transaction_year=/transaction_month= out of the path string instead means
+      this is a listing operation, not a data read, so it stays cheap regardless of how many
+      partitions exist - it's the same property scoped_raw_transactions_source() already relies on
+      `glob()` for below. -#}
   {%- set staging_glob = blob_location('staging') ~ '/**/*.parquet' -%}
 
-  {%- set staging_exists_query -%}
-    select count(*) as n from glob('{{ staging_glob }}')
+  {%- set listing_query -%}
+    select max(file) as latest_path from glob('{{ staging_glob }}')
   {%- endset -%}
-  {%- set staging_exists = run_query(staging_exists_query).columns[0].values()[0] -%}
-  {%- if staging_exists == 0 -%}
+  {%- set latest_path = run_query(listing_query).columns[0].values()[0] -%}
+  {%- if latest_path is none -%}
     {{ return(none) }}
   {%- endif -%}
 
-  {%- set watermark_query -%}
-    select max(created_at) as watermark from read_parquet('{{ staging_glob }}', union_by_name=true)
-  {%- endset -%}
-  {%- set watermark = run_query(watermark_query).columns[0].values()[0] -%}
-  {%- if watermark is none -%}
-    {{ return(none) }}
-  {%- endif -%}
+  {#- Normalize backslashes first: local (dev target) glob() results use OS-native separators,
+      which are backslashes on Windows. -#}
+  {%- set normalized_path = latest_path.replace('\\', '/') -%}
+  {%- set year = normalized_path.split('transaction_year=')[1].split('/')[0] | int -%}
+  {%- set month = normalized_path.split('transaction_month=')[1].split('/')[0] | int -%}
+  {%- set latest_month_start = modules.datetime.datetime(year, month, 1) -%}
 
   {%- set margin_days = var('incremental_lookback_days', 30) -%}
-  {{ return(watermark - modules.datetime.timedelta(days=margin_days)) }}
+  {{ return(latest_month_start - modules.datetime.timedelta(days=margin_days)) }}
 {% endmacro %}
 
 {% macro scoped_raw_transactions_source() %}
   {#- is_incremental() is checked here, not inside incremental_scan_from() - see that macro's
       docstring for why. This is the one place it's actually meaningful: stg_transactions is the
       model materialized `incremental`, so this correctly detects "the local relation doesn't
-      exist yet, dbt is about to do a full rebuild" and matches that with a full raw/ read. -#}
+      exist yet, dbt is about to do a full rebuild" and matches that with a full raw/ read.
+      KNOWN GAP: on GitHub Actions' ephemeral runners, the local relation never exists at the
+      start of any run, so is_incremental() is always false there and this always falls through
+      to full_raw_transactions_scan() - the scoping below only actually activates for repeated
+      local `dbt build` invocations on one machine, not in CI. See CLAUDE.md. -#}
   {%- if not is_incremental() -%}
     {{ return(full_raw_transactions_scan()) }}
   {%- endif -%}

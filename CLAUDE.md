@@ -132,7 +132,26 @@ for the reasoning already applied to the Function App hosting plan.
   zero files, even when others match fine); `export_staging_transactions.sql` uses the same
   watermark as a `WHERE created_at >=` filter, so DuckDB's partitioned `COPY` only rewrites
   partitions that could plausibly have changed (confirmed empirically: it leaves partitions outside
-  the current result set untouched, doesn't delete them). Net effect on real data: ~8 min → ~65s.
+  the current result set untouched, doesn't delete them). Net effect on real data for **repeated
+  local `dbt build` runs on one machine**: ~8 min → ~65s.
+  **This does not help CI at all.** `scoped_raw_transactions_source()` only scopes the read when
+  `is_incremental()` is true, which requires `stg_transactions`'s local relation to already exist -
+  but GitHub Actions runners are ephemeral, so that relation *never* exists at the start of any CI
+  run. Every `publish` job run therefore falls through to `full_raw_transactions_scan()` (the
+  complete unscoped read), same as before this was built. Confirmed directly against DuckDB's own
+  progress bar (bypassing dbt entirely) that this full `read_json` over ~5,000 individual files now
+  takes ~17-20 minutes, not the ~8 min originally measured - what looked like CI hanging/timing out
+  during investigation was actually just this, running to a real (if slow) completion, not a bug.
+  A correct fix needs `stg_transactions` to stop depending on local-table persistence altogether -
+  e.g., union the scoped raw/ read with the existing durable `staging/` output and dedupe on
+  `transaction_id` directly in the model, rather than routing through dbt's incremental
+  materialization's merge-against-`{{ this }}` semantics. Not yet built - a real redesign of the
+  model, not a tweak, deliberately left for explicit go-ahead rather than done unprompted.
+  Separately (real, worth keeping regardless of the above): the watermark itself was switched from
+  `read_parquet(..., union_by_name=true)` (has to open every matching file's footer to compute
+  `max(created_at)` - ~24s for 85 partitions) to parsing `transaction_year=`/`transaction_month=`
+  straight out of `glob()`'s returned path strings (~1s) - a listing operation instead of a data
+  read, so it stays cheap regardless of how many partitions accumulate.
   The margin is a bounded risk, not a precise cutoff — reconciliation can write backdated
   transactions to older `raw/` paths (that's its whole job per
   [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)), and a window scoped
