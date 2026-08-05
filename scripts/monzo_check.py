@@ -1,7 +1,12 @@
 """Sanity check that the stored refresh token can still mint a working access token."""
+import sys
+from pathlib import Path
+
 import requests
 
-from monzo_auth import get_access_token
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "functions"))
+
+from shared.monzo_auth import get_access_token
 
 headers = {"Authorization": f"Bearer {get_access_token()}"}
 

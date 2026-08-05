@@ -39,6 +39,7 @@ resource "azurerm_linux_function_app" "main" {
 
   app_settings = {
     KEY_VAULT_URI                         = var.key_vault_uri
+    STORAGE_ACCOUNT_NAME                  = var.storage_account_name
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
   }
 

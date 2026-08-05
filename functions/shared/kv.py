@@ -1,4 +1,7 @@
-"""Shared Key Vault access for local scripts, via the caller's `az login` session."""
+"""Key Vault access shared by local scripts and the deployed Function App.
+Uses DefaultAzureCredential, which resolves to the Function App's managed identity
+when deployed and to the developer's `az login` session when run locally.
+"""
 import os
 from functools import lru_cache
 
@@ -6,7 +9,7 @@ from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 
 @lru_cache

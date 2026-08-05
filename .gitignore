@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 venv/
 .claude/settings.local.json
+functions/local.settings.json
+.pytest_cache/

@@ -45,23 +45,33 @@ for the reasoning already applied to the Function App hosting plan.
 - Terraform: resource group, storage account (`raw/`, `staging/`, `marts/` containers, private
   access), Storage Queue (`monzo-webhook`), Key Vault module (`terraform/modules/key_vault/`),
   Function App module (`terraform/modules/function_app/` — Consumption Linux Function App,
-  Application Insights, managed-identity-only storage/Key Vault access).
-- `scripts/monzo_oauth.py` — one-time interactive OAuth grant.
-- `scripts/kv.py` — Key Vault helper. `scripts/monzo_auth.py` — access-token refresh (rotates the
-  refresh token in Key Vault on every call). `scripts/monzo_check.py`, `scripts/monzo_transactions.py`
-  — Monzo API sanity checks.
+  Application Insights, managed-identity-only storage/Key Vault access), `cost_guardrails` module
+  (`terraform/modules/cost_guardrails/` — subscription-wide Azure Policy: deny VM creation, restrict
+  App Service Plan and Storage Account SKUs to non-Premium tiers).
+- `functions/` — Function App code (Python v2 model, single `function_app.py`): HTTP webhook
+  (validates path secret + payload, enqueues), Queue-triggered raw writer (idempotent blob naming by
+  `transaction_id`), Timer-triggered reconciliation (6-hourly). Shared logic in `functions/shared/`
+  (`kv.py`, `monzo_auth.py`, `blob_writer.py`, `payload_validation.py`, `transactions.py`) per
+  [ADR-0004](docs/decisions/0004-single-function-app.md)/[0007](docs/decisions/0007-oauth-bootstrap-kept-out-of-cicd.md).
+  Pytest coverage in `functions/tests/` (payload validation, blob idempotency, token rotation — all
+  mocked, no real Monzo/Azure calls).
+- `scripts/monzo_oauth.py` — one-time interactive OAuth grant, now built on `functions/shared/`.
+  `scripts/monzo_check.py`, `scripts/monzo_transactions.py` — Monzo API sanity checks, same shared
+  modules.
 
 **Partially applied:** `terraform apply` for the Function App module is blocked on an Azure
-subscription-level App Service quota (`Total Regional VMs` = 0, not adjustable on a Free Trial
-subscription) — pending upgrade to Pay-As-You-Go, then retry.
+subscription-level App Service quota (`Y1 VMs` / `Total Regional VMs` = 0). Self-service quota
+increase failed even after upgrading to Pay-As-You-Go; a support ticket is filed and pending. Confirmed
+via direct ARM API checks that the same 0-quota holds across multiple regions (uksouth, westeurope,
+northeurope, eastus, swedencentral) — this is a subscription-wide review hold, not a per-region
+allocation issue, so switching regions won't help.
 
 **Not yet built:**
-- Function App Python code itself (`functions/` doesn't exist yet — HTTP webhook, Queue-triggered raw
-  writer, Timer-triggered reconciliation, plus `functions/shared/` per
-  [ADR-0004](docs/decisions/0004-single-function-app.md)/[0007](docs/decisions/0007-oauth-bootstrap-kept-out-of-cicd.md)).
 - dbt project.
 - MCP server.
 - GitHub Actions workflows (infra deploy, function deploy, dbt pipeline, CI).
+- Backfill-on-demand for a specific date range (spec mentions it; not part of the 3 functions ADR-0004
+  scopes, deferred).
 - Hierarchical Namespace (ADLS Gen2) on the storage account — proposed, not yet enabled. See
   [docs/decisions/0008-adls-gen2-hierarchical-namespace.md](docs/decisions/0008-adls-gen2-hierarchical-namespace.md).
 

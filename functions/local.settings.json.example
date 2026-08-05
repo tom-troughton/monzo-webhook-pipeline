@@ -1,0 +1,9 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "STORAGE_ACCOUNT_NAME": "<your-storage-account-name>",
+    "KEY_VAULT_URI": "https://<your-key-vault-name>.vault.azure.net/"
+  }
+}

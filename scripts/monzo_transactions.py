@@ -1,7 +1,12 @@
 """Fetch recent transactions for the first Monzo account."""
+import sys
+from pathlib import Path
+
 import requests
 
-from monzo_auth import get_access_token
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "functions"))
+
+from shared.monzo_auth import get_access_token
 
 headers = {"Authorization": f"Bearer {get_access_token()}"}
 

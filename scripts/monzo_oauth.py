@@ -3,16 +3,18 @@ and store the resulting refresh token in Key Vault.
 """
 import os
 import secrets
+import sys
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
-import requests
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "functions"))
 
-from kv import get_secret, set_secret
+from shared.kv import get_secret
+from shared.monzo_auth import exchange_authorization_code
 
 CLIENT_ID = get_secret("monzo-client-id")
-CLIENT_SECRET = get_secret("monzo-client-secret")
 REDIRECT_URI = os.environ.get("MONZO_REDIRECT_URI", "http://localhost:5000/callback")
 
 result = {}
@@ -54,22 +56,12 @@ def main():
     if not result.get("code"):
         raise SystemExit("No authorisation code received.")
 
-    token_response = requests.post("https://api.monzo.com/oauth2/token", data={
-        "grant_type": "authorization_code",
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-        "code": result["code"],
-    })
-    token_response.raise_for_status()
-    tokens = token_response.json()
+    print("\nExchanging authorisation code for tokens.")
+    exchange_authorization_code(result["code"], REDIRECT_URI)
+    print("Refresh token stored in Key Vault.")
 
-    print("\nAccess token acquired.")
     print("Now open the Monzo app - you should see a request to confirm access for this client.")
     input("Press Enter once you've approved it in the app...")
-
-    set_secret("monzo-refresh-token", tokens["refresh_token"])
-    print("Refresh token stored in Key Vault.")
 
 
 if __name__ == "__main__":
