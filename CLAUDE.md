@@ -259,10 +259,17 @@ replacing the old top-level args, explicit `maximum_instance_count`/`instance_me
 unrelated snag fixed along the way: `cost_guardrails`' SKU allowlist predated Flex Consumption and
 rejected `FC1` on the first attempt - added it to `allowed_app_service_plan_skus`.
 
-**Still not done:** the actual Function code hasn't been published yet (`func azure functionapp
-publish`, `deploy.yml`'s `deploy-functions` job) - infra exists, but the webhook/queue/reconciliation
-path isn't live until that runs. `raw/`/`staging/`/`marts/` still reflect the one-off manual backfill,
-not the real ingestion path, until then.
+**Now fully live:** `deploy.yml`'s `deploy-functions` job published the Function code and confirmed
+healthy via CI - `func-monzode-dev` has all 3 functions indexed (`webhook`, `raw_writer`,
+`reconcile`) and the webhook endpoint responds correctly. One CI-only wrinkle fixed along the way:
+`func azure functionapp publish`'s own post-deploy health check is unreliable against Flex
+Consumption apps - it reported "unhealthy" on two consecutive real deploys despite the app being
+confirmed genuinely healthy both times (functions indexed, webhook returning its expected 400)
+seconds later. `deploy.yml`'s `Verify deployment` step now checks real behaviour directly (retries
+the webhook endpoint, expects 400) instead of trusting func's internal check.
+`raw/`/`staging/`/`marts/` still reflect the one-off manual backfill rather than the live
+webhook/reconciliation path, since no real Monzo transactions have flowed through it yet - that will
+change organically as new transactions occur and reconciliation runs on its 6-hourly schedule.
 
 **Not yet built:**
 - Event Grid (blob-created) trigger for the dbt pipeline — currently push-to-master/nightly
