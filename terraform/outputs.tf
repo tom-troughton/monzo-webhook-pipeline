@@ -17,3 +17,11 @@ output "key_vault_name" {
 output "key_vault_uri" {
   value = module.key_vault.key_vault_uri
 }
+
+output "function_app_name" {
+  value = module.function_app.function_app_name
+}
+
+output "function_app_default_hostname" {
+  value = module.function_app.default_hostname
+}
