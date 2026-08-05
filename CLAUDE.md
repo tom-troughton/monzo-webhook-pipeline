@@ -89,9 +89,7 @@ for the reasoning already applied to the Function App hosting plan.
   fixtures are uploaded to `raw/` too (via `az storage blob upload-batch`, preserving the
   `YYYY/MM/DD/{id}.json` layout `functions/shared/blob_writer.py` writes), so the `azure` target
   has real objects ahead of the webhook/reconciliation Functions actually being deployed;
-  regenerate/re-upload via `python dbt/fixtures/generate_fixtures.py`. GitHub Actions OIDC has
-  `Storage Blob Data Reader` on just the `raw` container (`terraform/main.tf`) for when the dbt CI
-  workflow gets built — not wired up yet, `azure` target is currently run manually.
+  regenerate/re-upload via `python dbt/fixtures/generate_fixtures.py`.
 - **`staging/` and `marts/` are now real dbt outputs, not just provisioned containers.** The 4
   `mart_*` models are materialized `external` (DuckDB `COPY ... TO ... FORMAT PARQUET`), writing
   the exact filenames the spec's Storage section names (`marts/spend_by_category.parquet`, etc,
@@ -105,7 +103,8 @@ for the reasoning already applied to the Function App hosting plan.
   (`dbt/macros/blob_location.sql`): local `export/{container}/` folder for `dev`, real
   `az://{container}/` for `azure` — same `target.name` check as the source, for the same reason
   (see gotcha below). The `dev` target's `export/` output dir must exist before running (DuckDB
-  doesn't auto-create write directories on Windows) — `dbt/export/` is gitignored, not a fixture.
+  doesn't auto-create write directories) — `dbt/export/` is gitignored, not a fixture; the CI
+  workflow `mkdir -p`s it before `dbt build`.
   **Gotcha:** dbt does *not* re-render Jinja inside `vars:` values in `dbt_project.yml` — a var set
   to `"{{ 'x' if target.name == ... }}"` is passed through literally, not evaluated. Both the
   `dev`/`azure` source-path switch (`models/staging/_sources.yml`'s `external_location`) and the
@@ -117,9 +116,19 @@ for the reasoning already applied to the Function App hosting plan.
 - Reading the storage account's **data plane** needed an explicit RBAC grant even for the
   subscription owner — `Contributor` at the resource-group scope only covers control-plane
   operations, same gotcha the tfstate backend already required a workaround for. `terraform/main.tf`
-  grants the owner `Storage Blob Data Contributor` on the whole storage account (covers writing
-  `staging/`/`marts/` too — GitHub Actions OIDC only has read on `raw/` so far, since it can't run
-  the dbt pipeline yet anyway).
+  grants the owner `Storage Blob Data Contributor` on the whole storage account. GitHub Actions OIDC
+  gets the same role but container-scoped per the spec's least-privilege intent: `Storage Blob Data
+  Reader` on `raw/` only, `Storage Blob Data Contributor` on `staging/` and `marts/` (needs to write
+  there, but still can't touch/delete `raw/`).
+- `.github/workflows/dbt.yml` — two jobs: `build` runs `dbt build` against the `dev` target (local
+  fixtures, no Azure auth) on every PR/push touching `dbt/**`, so a broken model/test fails fast
+  without touching real data; `publish` (push to `master`, nightly cron at 05:00 UTC as the
+  spec's reliability fallback since the Event Grid "new raw data" trigger isn't built, or manual
+  `workflow_dispatch`) runs `dbt build --target azure` against real Blob Storage via the same
+  `azure/login@v2` OIDC pattern `deploy.yml` uses — the action performs an actual `az login` with
+  the federated token, which is what lets DuckDB's `credential_chain` (`chain: cli`) authenticate
+  in CI exactly like it does locally. Also runs `dbt docs generate` and uploads the docs as a build
+  artifact (7-day retention) — not hosted anywhere yet, just downloadable for now.
 
 **Partially applied:** `terraform apply` for the Function App module is blocked on an Azure
 subscription-level App Service quota (`Y1 VMs` / `Total Regional VMs` = 0). Self-service quota
@@ -129,9 +138,12 @@ northeurope, eastus, swedencentral) — this is a subscription-wide review hold,
 allocation issue, so switching regions won't help.
 
 **Not yet built:**
-- dbt pipeline GitHub Actions workflow (dbt project itself now exists — see `dbt/` above — but it
-  still only runs against local fixtures; wiring it to real Blob Storage and CI is deferred).
 - MCP server.
+- Event Grid (blob-created) trigger for the dbt pipeline — currently push-to-master/nightly
+  cron/manual only (`.github/workflows/dbt.yml`), per the spec's fallback path; the near-real-time
+  event-driven path is deferred.
+- dbt docs hosting (currently just uploaded as a downloadable CI artifact, per the spec's Future
+  Enhancements section).
 - Backfill-on-demand for a specific date range (spec mentions it; not part of the 3 functions ADR-0004
   scopes, deferred).
 - Hierarchical Namespace (ADLS Gen2) on the storage account — proposed, not yet enabled. See

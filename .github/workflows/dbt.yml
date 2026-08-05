@@ -1,0 +1,94 @@
+name: dbt
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "dbt/**"
+      - ".github/workflows/dbt.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "dbt/**"
+  schedule:
+    # Nightly fallback per the spec's CI/CD section - the Event Grid "new raw data" trigger isn't
+    # built yet, so this is the only thing that runs the pipeline until it is.
+    - cron: "0 5 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dbt-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: dbt build (local fixtures)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dbt
+    env:
+      DBT_PROFILES_DIR: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: dbt/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # DuckDB's COPY TO doesn't create missing directories - the external models need these
+      # to exist before dbt build runs (see the equivalent local-dev note in CLAUDE.md).
+      - run: mkdir -p export/staging export/marts
+
+      # dev target only - local fixtures, no Azure calls, safe to run on every PR.
+      - run: dbt build
+
+  publish:
+    name: dbt build (real Blob Storage)
+    needs: build
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: dbt
+    env:
+      DBT_PROFILES_DIR: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: dbt/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # azure/login performs an actual `az login` with the federated OIDC token, so DuckDB's
+      # azure extension credential_chain (chain: cli, in profiles.yml) picks it up the same way
+      # it does locally via `az login` - no separate secret or connection string needed.
+      - run: dbt build --target azure
+
+      - run: dbt docs generate --target azure
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbt-docs
+          path: dbt/target
+          retention-days: 7

@@ -54,11 +54,26 @@ resource "azurerm_role_assignment" "owner_storage_data" {
   principal_id         = var.owner_object_id
 }
 
-# dbt only reads raw/ so far (staging/marts aren't written back to Blob yet - deferred until the
-# dbt CI pipeline is built) - container-scoped, read-only per the spec's least-privilege RBAC intent.
+# dbt reads raw/ - read-only, container-scoped, per the spec's least-privilege RBAC intent
+# ("...can read raw/+staging/ and write marts/, but not delete raw/").
 resource "azurerm_role_assignment" "github_actions_raw_reader" {
   scope                = azurerm_storage_container.layers["raw"].id
   role_definition_name = "Storage Blob Data Reader"
+  principal_id         = module.github_oidc.principal_id
+}
+
+# dbt writes staging/ and marts/ (stg_transactions and the mart models are published as Parquet -
+# see dbt/models/staging/export_staging_transactions.sql) - Contributor, not just Reader, but still
+# container-scoped so the dbt pipeline identity can't touch raw/ or anything else in the account.
+resource "azurerm_role_assignment" "github_actions_staging_writer" {
+  scope                = azurerm_storage_container.layers["staging"].id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = module.github_oidc.principal_id
+}
+
+resource "azurerm_role_assignment" "github_actions_marts_writer" {
+  scope                = azurerm_storage_container.layers["marts"].id
+  role_definition_name = "Storage Blob Data Contributor"
   principal_id         = module.github_oidc.principal_id
 }
 
