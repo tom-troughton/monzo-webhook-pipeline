@@ -38,6 +38,12 @@ for the reasoning already applied to the Function App hosting plan.
 - **The Monzo OAuth bootstrap script must never run in CI.** It's an interactive, human-consent flow
   that writes the initial refresh token to Key Vault — local/manual only. See
   [docs/decisions/0007-oauth-bootstrap-kept-out-of-cicd.md](docs/decisions/0007-oauth-bootstrap-kept-out-of-cicd.md).
+- **Never use `data.azurerm_client_config.current.object_id` to grant access to a specific person.**
+  It resolves to whoever is *currently authenticated* - it means "me" when I run terraform locally,
+  but "the GitHub Actions service principal" when CI runs the same config. Used inside a
+  `for_each`/`toset`, this actually made CI destroy the human deployer's own Key Vault access when it
+  ran `apply` (the set collapsed to just CI's identity from CI's point of view). Use the fixed
+  `var.owner_object_id` variable instead for any permission grant meant for a specific person.
 
 ## Current state (update as things land)
 
@@ -53,10 +59,14 @@ for the reasoning already applied to the Function App hosting plan.
 - **Remote Terraform state** — Azure Blob Storage (`rg-monzode-tfstate`, AAD-RBAC auth, not account
   keys), so CI and local runs share state. The backend storage account/container are deliberately
   NOT Terraform-managed — see [ADR-0009](docs/decisions/0009-remote-state-backend.md).
-- `.github/workflows/deploy.yml` — terraform plan on PRs, plan+apply on push to `master` via OIDC
-  (no stored Azure secret), then `func azure functionapp publish` for the Function code. Requires
-  repo variables `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID` (not secrets - OIDC
-  needs no client secret) - values are in `terraform output github_actions_client_id` etc.
+- `.github/workflows/deploy.yml` — terraform plan on PRs, plan+apply on push to `master` via OIDC (no
+  stored Azure secret), then `func azure functionapp publish` for the Function code. Repo variables
+  `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID` are set; the pipeline is verified working
+  end to end (`terraform plan` and `apply` both succeed in CI) - the only remaining failure is the
+  Function App's Service Plan hitting the same quota block described below, which will resolve itself
+  once the ticket clears. `gh` CLI is installed and authenticated on this machine, so workflow runs can
+  be inspected directly (`gh run list`, `gh run view <id> --log-failed`) instead of relying on
+  copy-pasted logs.
 - `functions/` — Function App code (Python v2 model, single `function_app.py`): HTTP webhook
   (validates path secret + payload, enqueues), Queue-triggered raw writer (idempotent blob naming by
   `transaction_id`), Timer-triggered reconciliation (6-hourly). Shared logic in `functions/shared/`
