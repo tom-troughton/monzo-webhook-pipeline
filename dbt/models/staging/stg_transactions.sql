@@ -22,7 +22,8 @@ renamed as (
         transaction.amount as amount_minor_units,
         transaction.currency as currency,
         transaction.created::timestamp as created_at,
-        transaction.settled::timestamp as settled_at,
+        -- Monzo sends settled as "" (not null) for unsettled/pending transactions.
+        nullif(transaction.settled, '')::timestamp as settled_at,
         transaction.description as description,
         transaction.category as category,
         nullif(transaction.notes, '') as notes,

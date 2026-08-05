@@ -6,9 +6,23 @@ sources:
       Raw transaction JSON as persisted by functions/shared/blob_writer.py, one file per
       transaction_id under raw/YYYY/MM/DD/. The `azure` dbt target (see profiles.yml) reads the
       real raw/ container over the DuckDB azure extension; every other target reads local
-      synthetic fixtures via the raw_transactions_glob var (dbt_project.yml).
+      synthetic fixtures via the raw_transactions_glob var (dbt_project.yml). Schema is declared
+      explicitly rather than inferred (read_json, not read_json_auto), since real Monzo API
+      responses omit optional fields entirely instead of sending them as null - inference from
+      whatever's actually present would silently drop a column the moment no file in the batch
+      happens to have it set. Inlined here rather than in a macro: dbt-duckdb renders
+      external_location during project parsing, before custom macros are available in that
+      context (same root cause as the vars: gotcha noted in CLAUDE.md). `formatter: oldstyle`
+      below (rather than the default `newstyle`) is required because the columns={...} map has
+      literal braces - dbt-duckdb's default formatter runs this whole string through Python's
+      str.format_map(), which misreads literal braces as format-string substitution fields.
+      oldstyle uses %-substitution instead, which a plain string with no `%` in it survives as-is.
     meta:
-      external_location: "read_json_auto('{{ 'az://raw/**/*.json' if target.name == 'azure' else var(\"raw_transactions_glob\") }}', union_by_name=true)"
+      formatter: oldstyle
+      external_location: >-
+        read_json('{{ 'az://raw/**/*.json' if target.name == 'azure' else var("raw_transactions_glob") }}',
+        format='auto', union_by_name=true,
+        columns={'source': 'VARCHAR', 'transaction': 'STRUCT(id VARCHAR, account_id VARCHAR, amount BIGINT, currency VARCHAR, created VARCHAR, settled VARCHAR, description VARCHAR, category VARCHAR, notes VARCHAR, is_load BOOLEAN, decline_reason VARCHAR, merchant STRUCT(id VARCHAR, name VARCHAR, category VARCHAR, emoji VARCHAR, online BOOLEAN, atm BOOLEAN))'})
     tables:
       - name: transactions
         description: One row per raw JSON blob - {source, transaction} as written by the webhook/reconciliation Functions.

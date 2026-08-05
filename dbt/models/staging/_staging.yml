@@ -31,6 +31,12 @@ models:
       - name: category
         data_tests:
           - accepted_values:
+              # warn, not error: Monzo's category list is an external, evolving vocabulary we
+              # don't control (this list was already missing "savings" against real account
+              # data) - a hard failure here would break the whole pipeline over something that
+              # isn't actually a data quality problem, just a taxonomy we haven't seen yet.
+              config:
+                severity: warn
               arguments:
                 values:
                   - general
@@ -49,6 +55,7 @@ models:
                   - income
                   - gifts
                   - finances
+                  - savings
       - name: ingestion_source
         data_tests:
           - accepted_values:

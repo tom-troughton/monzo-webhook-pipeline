@@ -83,13 +83,25 @@ for the reasoning already applied to the Function App hosting plan.
   [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)) →
   `dim_account`/`dim_category`/`dim_merchant`/`fct_transactions` → `mart_spend_by_category`/
   `mart_monthly_cashflow`/`mart_merchant_summary`/`mart_subscriptions`, per the spec's dbt Models
-  section. Two dbt targets (`dbt/profiles.yml`): `dev` (default) reads local synthetic fixtures,
-  no Azure auth; `azure` reads the real `raw/` container via the DuckDB `azure` extension with
-  `credential_chain` auth — no stored secret, resolves through `az login` locally. The 47 synthetic
-  fixtures are uploaded to `raw/` too (via `az storage blob upload-batch`, preserving the
-  `YYYY/MM/DD/{id}.json` layout `functions/shared/blob_writer.py` writes), so the `azure` target
-  has real objects ahead of the webhook/reconciliation Functions actually being deployed;
-  regenerate/re-upload via `python dbt/fixtures/generate_fixtures.py`.
+  section. Two dbt targets (`dbt/profiles.yml`): `dev` (default) reads local synthetic fixtures
+  (`dbt/fixtures/raw/`, regenerate via `python dbt/fixtures/generate_fixtures.py`), no Azure auth;
+  `azure` reads the real `raw/` container via the DuckDB `azure` extension with `credential_chain`
+  auth — no stored secret, resolves through `az login` locally. **`raw/`/`staging/`/`marts/` hold
+  real transaction data now, not synthetic** — `scripts/backfill_transactions.py` (manual/local
+  only, mirrors `functions/shared/transactions.py`'s pagination but pulls full history, not just
+  24h) pulled real transactions via the Monzo API and wrote them with the same
+  `write_transaction()` the reconciliation Function will eventually use, after the earlier
+  synthetic blobs were deleted (`az storage blob delete-batch`). Real API responses immediately
+  exposed two things the synthetic fixtures hadn't: (1) Monzo omits optional fields like
+  `decline_reason` entirely rather than sending `null` when absent, which breaks
+  `read_json_auto`'s union-by-name schema inference the moment a batch has no file with that key
+  set — `_sources.yml`'s `external_location` now declares an explicit `read_json(..., columns=
+  {...})` schema instead, so every column always exists; (2) Monzo sends `settled` as `""`, not
+  `null`, for unsettled transactions - `stg_transactions.sql` now does
+  `nullif(transaction.settled, '')::timestamp`. Also surfaced a real category value
+  (`savings`) the accepted_values test's hand-picked list didn't have — that test is now
+  `severity: warn` rather than error, since Monzo's category taxonomy is external and evolving,
+  not something a hard pipeline failure should gate on.
 - **`staging/` and `marts/` are now real dbt outputs, not just provisioned containers.** The 4
   `mart_*` models are materialized `external` (DuckDB `COPY ... TO ... FORMAT PARQUET`), writing
   the exact filenames the spec's Storage section names (`marts/spend_by_category.parquet`, etc,
@@ -110,6 +122,18 @@ for the reasoning already applied to the Function App hosting plan.
   `dev`/`azure` source-path switch (`models/staging/_sources.yml`'s `external_location`) and the
   output-path switch (`blob_location()` macro) had to be plain Jinja in a model/macro context
   (where `target.name` does resolve), not a project-level var.
+  **Gotcha #2:** custom macros aren't available either, specifically inside a source's
+  `external_location` — dbt-duckdb renders that during project *parsing* (building the manifest),
+  before custom macros are registered, so `{{ my_macro() }}` there fails with `'my_macro' is
+  undefined` even though the same macro works fine from any model. `_sources.yml`'s
+  `external_location` is one long inlined expression because of this, not a call to a macro.
+  **Gotcha #3:** dbt-duckdb's default (`newstyle`) formatter runs `external_location` through
+  Python's `str.format_map()` after Jinja rendering — a `columns={...}` map (needed for gotcha #1
+  above) has literal braces that collide with `.format_map()`'s substitution syntax and throw a
+  `KeyError`. Doubling the braces doesn't work either: Jinja renders first and would evaluate the
+  doubled braces as its own dict-literal expression, undoing the escaping. Fix: set
+  `meta.formatter: oldstyle` on the source, which uses `%`-substitution instead — a string with no
+  `%` in it just passes through unchanged.
   Also: each target uses its own local DuckDB file (`dev.duckdb`/`azure.duckdb`, gitignored) rather
   than `:memory:`, since an in-memory DB doesn't survive between separate `dbt` CLI invocations
   (breaks `dbt run` then `dbt show`), and a shared file would mix tables from both sources.
