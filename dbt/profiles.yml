@@ -7,15 +7,21 @@ monzo_finance:
       path: "dev.duckdb"
       threads: 4
 
-    # Reads the real raw/ container in Blob Storage. Auth is DuckDB's azure credential_chain
-    # provider (no stored secret) - locally this resolves via `az login`; wiring the GitHub
-    # Actions OIDC identity through the same chain is deferred until the dbt CI workflow exists.
+    # Reads/writes the real raw/staging/marts containers in Blob Storage. Auth is DuckDB's azure
+    # credential_chain provider (no stored secret) - resolves via `az login` locally, and via
+    # azure/login@v2's underlying `az login` (OIDC federated token) in GitHub Actions.
     azure:
       type: duckdb
       path: "azure.duckdb"
       threads: 4
       extensions:
         - azure
+      # DuckDB's default HTTP transport can't find the CA bundle on GitHub Actions' minimal Linux
+      # runner ("Problem with the SSL CA cert") - curl transport fixes that there. But forcing
+      # curl everywhere breaks it the other way on Windows (no default CA bundle for curl to find),
+      # so this is env-driven: unset locally (default transport), DBT_AZURE_TRANSPORT=curl in CI.
+      settings:
+        azure_transport_option_type: "{{ env_var('DBT_AZURE_TRANSPORT', 'default') }}"
       secrets:
         - type: azure
           provider: credential_chain

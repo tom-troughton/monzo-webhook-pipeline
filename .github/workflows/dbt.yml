@@ -63,6 +63,8 @@ jobs:
         working-directory: dbt
     env:
       DBT_PROFILES_DIR: .
+      # See the comment on the azure target's `settings` in dbt/profiles.yml.
+      DBT_AZURE_TRANSPORT: curl
     steps:
       - uses: actions/checkout@v4
 
