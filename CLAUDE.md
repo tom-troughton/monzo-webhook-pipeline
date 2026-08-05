@@ -97,8 +97,16 @@ for the reasoning already applied to the Function App hosting plan.
   only, mirrors `functions/shared/transactions.py`'s pagination but pulls full history, not just
   24h) pulled real transactions via the Monzo API and wrote them with the same
   `write_transaction()` the reconciliation Function will eventually use, after the earlier
-  synthetic blobs were deleted (`az storage blob delete-batch`). Real API responses immediately
-  exposed two things the synthetic fixtures hadn't: (1) Monzo omits optional fields like
+  synthetic blobs were deleted (`az storage blob delete-batch`). Now holds the account's full
+  history back to account opening (2019) - 4,988 transactions, not the ~1 month it initially got.
+  **Two Monzo API constraints that are easy to conflate:** a single `/transactions` call can't
+  span more than 365 days (`since`..`before`) or it 400s, so full history has to be walked in
+  year-long windows, not one `since=<account creation>` call; and accessing transactions outside
+  the normal recent window at all requires the user to have *interactively* re-authorised very
+  recently (403 `forbidden.verification_required` otherwise) - refreshing the access token via the
+  refresh_token grant does **not** satisfy this, only re-running `scripts/monzo_oauth.py`'s
+  authorization-code flow does (including the "approve in the Monzo app" step it prompts for).
+  Real API responses also immediately exposed two things the synthetic fixtures hadn't: (1) Monzo omits optional fields like
   `decline_reason` entirely rather than sending `null` when absent, which breaks
   `read_json_auto`'s union-by-name schema inference the moment a batch has no file with that key
   set — `_sources.yml`'s `external_location` now declares an explicit `read_json(..., columns=
