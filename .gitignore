@@ -11,4 +11,6 @@ dbt/dbt_packages/
 dbt/logs/
 dbt/dev.duckdb
 dbt/dev.duckdb.wal
+dbt/azure.duckdb
+dbt/azure.duckdb.wal
 dbt/.user.yml

@@ -77,20 +77,32 @@ for the reasoning already applied to the Function App hosting plan.
 - `scripts/monzo_oauth.py` — one-time interactive OAuth grant, now built on `functions/shared/`.
   `scripts/monzo_check.py`, `scripts/monzo_transactions.py` — Monzo API sanity checks, same shared
   modules.
-- `dbt/` — dbt-duckdb project, working end-to-end against synthetic fixtures (`dbt build` passes: 9
-  models, 25 data tests). `stg_transactions` (incremental, merge on `transaction_id`, reconciliation
-  wins over webhook per [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)) →
+- `dbt/` — dbt-duckdb project, verified end-to-end against both local fixtures and the real `raw/`
+  container (`dbt build` passes: 9 models, 25 data tests, either way). `stg_transactions`
+  (incremental, merge on `transaction_id`, reconciliation wins over webhook per
+  [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)) →
   `dim_account`/`dim_category`/`dim_merchant`/`fct_transactions` → `mart_spend_by_category`/
   `mart_monthly_cashflow`/`mart_merchant_summary`/`mart_subscriptions`, per the spec's dbt Models
-  section. The `raw` source resolves via a dbt-duckdb `external_location` (`read_json_auto` over a
-  `raw_transactions_glob` var) so swapping local fixtures for the real `az://.../raw/` container later
-  is a one-var change, not a model rewrite. Dev profile (`dbt/profiles.yml`) uses a local, gitignored
-  `dev.duckdb` file rather than `:memory:` — an in-memory database doesn't survive between separate
-  `dbt` CLI invocations, which made it impossible to `dbt run` then `dbt show`/inspect afterward.
-  Synthetic fixtures live in `dbt/fixtures/raw/` (regenerate via
-  `python dbt/fixtures/generate_fixtures.py`), matching the exact `{"source", "transaction"}` shape
-  `functions/shared/blob_writer.py` writes. No GitHub Actions workflow yet (deferred, per the spec's
-  CI/CD section, until this points at real Blob Storage).
+  section. Two dbt targets (`dbt/profiles.yml`): `dev` (default) reads local synthetic fixtures,
+  no Azure auth; `azure` reads the real `raw/` container via the DuckDB `azure` extension with
+  `credential_chain` auth — no stored secret, resolves through `az login` locally. The 47 synthetic
+  fixtures are uploaded to `raw/` too (via `az storage blob upload-batch`, preserving the
+  `YYYY/MM/DD/{id}.json` layout `functions/shared/blob_writer.py` writes), so the `azure` target
+  has real objects ahead of the webhook/reconciliation Functions actually being deployed;
+  regenerate/re-upload via `python dbt/fixtures/generate_fixtures.py`. GitHub Actions OIDC has
+  `Storage Blob Data Reader` on just the `raw` container (`terraform/main.tf`) for when the dbt CI
+  workflow gets built — not wired up yet, `azure` target is currently run manually.
+  **Gotcha:** dbt does *not* re-render Jinja inside `vars:` values in `dbt_project.yml` — a var set
+  to `"{{ 'x' if target.name == ... }}"` is passed through literally, not evaluated. The
+  `dev`/`azure` source-path switch had to live in `models/staging/_sources.yml`'s
+  `external_location` (rendered per-model, where `target.name` does work), not in a shared var.
+  Also: each target uses its own local DuckDB file (`dev.duckdb`/`azure.duckdb`, gitignored) rather
+  than `:memory:`, since an in-memory DB doesn't survive between separate `dbt` CLI invocations
+  (breaks `dbt run` then `dbt show`), and a shared file would mix tables from both sources.
+- Reading the storage account's **data plane** needed an explicit RBAC grant even for the
+  subscription owner — `Contributor` at the resource-group scope only covers control-plane
+  operations, same gotcha the tfstate backend already required a workaround for. `terraform/main.tf`
+  grants the owner `Storage Blob Data Contributor` on the whole storage account.
 
 **Partially applied:** `terraform apply` for the Function App module is blocked on an Azure
 subscription-level App Service quota (`Y1 VMs` / `Total Regional VMs` = 0). Self-service quota

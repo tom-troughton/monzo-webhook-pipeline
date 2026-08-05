@@ -4,11 +4,11 @@ sources:
   - name: raw
     description: >
       Raw transaction JSON as persisted by functions/shared/blob_writer.py, one file per
-      transaction_id under raw/YYYY/MM/DD/. In dev this resolves to local synthetic fixtures
-      (dbt/fixtures/raw); in CI/prod it points at the raw/ container in Blob Storage instead
-      (see the raw_transactions_glob var in dbt_project.yml).
+      transaction_id under raw/YYYY/MM/DD/. The `azure` dbt target (see profiles.yml) reads the
+      real raw/ container over the DuckDB azure extension; every other target reads local
+      synthetic fixtures via the raw_transactions_glob var (dbt_project.yml).
     meta:
-      external_location: "read_json_auto('{{ var(\"raw_transactions_glob\") }}', union_by_name=true)"
+      external_location: "read_json_auto('{{ 'az://raw/**/*.json' if target.name == 'azure' else var(\"raw_transactions_glob\") }}', union_by_name=true)"
     tables:
       - name: transactions
         description: One row per raw JSON blob - {source, transaction} as written by the webhook/reconciliation Functions.

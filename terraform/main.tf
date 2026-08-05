@@ -45,6 +45,23 @@ resource "azurerm_storage_queue" "webhook" {
   storage_account_id = azurerm_storage_account.main.id
 }
 
+# Data-plane access to the main storage account requires an explicit RBAC grant even for the
+# subscription owner - Contributor at the resource group scope only covers control-plane
+# operations (docs/decisions - see the tfstate_owner grant below for the same pattern).
+resource "azurerm_role_assignment" "owner_storage_data" {
+  scope                = azurerm_storage_account.main.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.owner_object_id
+}
+
+# dbt only reads raw/ so far (staging/marts aren't written back to Blob yet - deferred until the
+# dbt CI pipeline is built) - container-scoped, read-only per the spec's least-privilege RBAC intent.
+resource "azurerm_role_assignment" "github_actions_raw_reader" {
+  scope                = azurerm_storage_container.layers["raw"].id
+  role_definition_name = "Storage Blob Data Reader"
+  principal_id         = module.github_oidc.principal_id
+}
+
 module "key_vault" {
   source = "./modules/key_vault"
 

@@ -1,7 +1,23 @@
 monzo_finance:
   target: dev
   outputs:
+    # Fast offline iteration against dbt/fixtures/raw - no Azure calls, no auth needed.
     dev:
       type: duckdb
       path: "dev.duckdb"
       threads: 4
+
+    # Reads the real raw/ container in Blob Storage. Auth is DuckDB's azure credential_chain
+    # provider (no stored secret) - locally this resolves via `az login`; wiring the GitHub
+    # Actions OIDC identity through the same chain is deferred until the dbt CI workflow exists.
+    azure:
+      type: duckdb
+      path: "azure.duckdb"
+      threads: 4
+      extensions:
+        - azure
+      secrets:
+        - type: azure
+          provider: credential_chain
+          chain: "cli"
+          account_name: "stmonzodedsghvv"
