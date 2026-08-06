@@ -59,7 +59,8 @@ jobs:
           terraform plan -input=false -out=tfplan \
             -var="monzo_client_id=ci-placeholder-ignored-after-first-apply" \
             -var="monzo_client_secret=ci-placeholder-ignored-after-first-apply" \
-            -var="monzo_refresh_token=ci-placeholder-ignored-after-first-apply"
+            -var="monzo_refresh_token=ci-placeholder-ignored-after-first-apply" \
+            -var="github_dispatch_token=ci-placeholder-ignored-after-first-apply"
 
       - name: Terraform apply
         if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'

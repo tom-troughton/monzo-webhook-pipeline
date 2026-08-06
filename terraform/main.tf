@@ -90,9 +90,10 @@ module "key_vault" {
     module.github_oidc.principal_id,
   ]
 
-  monzo_client_id     = var.monzo_client_id
-  monzo_client_secret = var.monzo_client_secret
-  monzo_refresh_token = var.monzo_refresh_token
+  monzo_client_id       = var.monzo_client_id
+  monzo_client_secret   = var.monzo_client_secret
+  monzo_refresh_token   = var.monzo_refresh_token
+  github_dispatch_token = var.github_dispatch_token
 }
 
 module "function_app" {
@@ -106,12 +107,26 @@ module "function_app" {
   storage_account_name = azurerm_storage_account.main.name
   storage_account_id   = azurerm_storage_account.main.id
   key_vault_uri        = module.key_vault.key_vault_uri
+
+  github_repo_owner = var.github_org
+  github_repo_name  = var.github_repo
 }
 
 resource "azurerm_role_assignment" "function_app_kv_reader" {
   scope                = module.key_vault.key_vault_id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = module.function_app.principal_id
+}
+
+module "event_grid" {
+  source = "./modules/event_grid"
+
+  project_name        = var.project_name
+  environment         = var.environment
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+
+  storage_account_id = azurerm_storage_account.main.id
 }
 
 module "github_oidc" {

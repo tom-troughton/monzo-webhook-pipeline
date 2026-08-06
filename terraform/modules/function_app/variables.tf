@@ -28,3 +28,12 @@ variable "key_vault_uri" {
   description = "Key Vault URI, passed through as an app setting so function code can read Monzo secrets at runtime"
   type        = string
 }
+
+variable "github_repo_owner" {
+  description = "GitHub org/user owning the repo, passed through as an app setting for the Event Grid handler's repository_dispatch call"
+  type        = string
+}
+
+variable "github_repo_name" {
+  type = string
+}

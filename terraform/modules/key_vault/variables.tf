@@ -40,3 +40,9 @@ variable "monzo_refresh_token" {
   type        = string
   sensitive   = true
 }
+
+variable "github_dispatch_token" {
+  description = "Fine-grained GitHub PAT (Contents: read/write, scoped to this repo only) used by the Event Grid handler to trigger repository_dispatch on new raw/ data - see ADR-0011"
+  type        = string
+  sensitive   = true
+}

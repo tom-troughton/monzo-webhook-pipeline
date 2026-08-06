@@ -218,8 +218,9 @@ for the reasoning already applied to the Function App hosting plan.
 - `.github/workflows/dbt.yml` — two jobs: `build` runs `dbt build` against the `dev` target (local
   fixtures, no Azure auth) on every PR/push touching `dbt/**`, so a broken model/test fails fast
   without touching real data; `publish` (push to `master`, nightly cron at 05:00 UTC as the
-  spec's reliability fallback since the Event Grid "new raw data" trigger isn't built, or manual
-  `workflow_dispatch`) runs `dbt build --target azure` against real Blob Storage via the same
+  spec's reliability fallback now that the Event Grid "new raw data" trigger is also live,
+  `repository_dispatch` from that Event Grid handler, or manual `workflow_dispatch`) runs
+  `dbt build --target azure` against real Blob Storage via the same
   `azure/login@v2` OIDC pattern `deploy.yml` uses — the action performs an actual `az login` with
   the federated token, which is what lets DuckDB's `credential_chain` (`chain: cli`) authenticate
   in CI exactly like it does locally. No `dbt docs generate` step — it produced a docs site nobody
@@ -271,12 +272,19 @@ the webhook endpoint, expects 400) instead of trusting func's internal check.
 webhook/reconciliation path, since no real Monzo transactions have flowed through it yet - that will
 change organically as new transactions occur and reconciliation runs on its 6-hourly schedule.
 
+**Built (event-driven dbt trigger):** Event Grid (`terraform/modules/event_grid/`) watches `raw/`
+for `BlobCreated` events (subject-filtered to `raw/` specifically, so dbt rewriting `staging/`/
+`marts/` on the same storage account can't retrigger itself) and delivers to a Storage Queue
+(`raw-data-events`) — not directly to the Function App via `azure_function_endpoint`, which hit a
+confirmed Azure platform bug with Flex Consumption (reproduced identically via Terraform and the
+Portal UI directly; see [ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md) for
+the full diagnosis). A new `on_raw_data_created` queue-triggered function calls GitHub's
+`repository_dispatch` API (`github-dispatch-token` in Key Vault, the one deliberate exception to
+OIDC-only CI auth — see ADR-0011), and `dbt.yml` now also triggers on `repository_dispatch`
+alongside the existing push/cron/manual triggers. The nightly cron stays as the reliability
+fallback regardless.
+
 **Not yet built:**
-- Event Grid (blob-created) trigger for the dbt pipeline — currently push-to-master/nightly
-  cron/manual only (`.github/workflows/dbt.yml`), per the spec's fallback path. Design + rationale
-  for why it's deliberately left blocked on the Function App quota, not worked around (a compute-
-  free stopgap was considered and rejected), is in
-  [ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md).
 - dbt docs hosting, per the spec's Future Enhancements section (no CI step generates docs currently
   either — dropped since nothing hosted them).
 - Backfill-on-demand for a specific date range (spec mentions it; not part of the 3 functions ADR-0004

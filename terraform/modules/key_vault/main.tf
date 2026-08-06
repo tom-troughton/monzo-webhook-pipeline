@@ -83,3 +83,16 @@ resource "azurerm_key_vault_secret" "webhook_path_secret" {
   key_vault_id = azurerm_key_vault.main.id
   depends_on   = [azurerm_role_assignment.secrets_officer]
 }
+
+resource "azurerm_key_vault_secret" "github_dispatch_token" {
+  name         = "github-dispatch-token"
+  value        = var.github_dispatch_token
+  key_vault_id = azurerm_key_vault.main.id
+  depends_on   = [azurerm_role_assignment.secrets_officer]
+
+  # Rotated manually (fine-grained PATs expire) - CI's terraform apply passes a placeholder,
+  # never a real value, same pattern as the Monzo secrets above.
+  lifecycle {
+    ignore_changes = [value]
+  }
+}

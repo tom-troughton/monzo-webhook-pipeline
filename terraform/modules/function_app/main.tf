@@ -61,11 +61,22 @@ resource "azurerm_function_app_flex_consumption" "main" {
     # Identity-based AzureWebJobsStorage - no top-level storage_account_name/storage_uses_managed_identity
     # argument exists on this resource type (unlike azurerm_linux_function_app).
     AzureWebJobsStorage__accountName = var.storage_account_name
+    # Read by shared/github_dispatch.py's Event Grid handler (docs/decisions/0011).
+    GITHUB_REPO_OWNER = var.github_repo_owner
+    GITHUB_REPO_NAME  = var.github_repo_name
   }
 
   tags = {
     project     = var.project_name
     environment = var.environment
+  }
+
+  # Azure reflects APPLICATIONINSIGHTS_CONNECTION_STRING (set via app_settings above) back onto
+  # this site_config attribute after every deploy; config here has no opinion on it, so Terraform
+  # would otherwise "fix" it to null on every single apply - a real Function App update/restart
+  # each time, for a value that's already correctly set via app_settings regardless.
+  lifecycle {
+    ignore_changes = [site_config[0].application_insights_connection_string]
   }
 }
 
