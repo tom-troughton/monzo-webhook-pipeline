@@ -70,8 +70,13 @@ for the reasoning already applied to the Function App hosting plan.
   copy-pasted logs.
 - `functions/` — Function App code (Python v2 model, single `function_app.py`): HTTP webhook
   (validates path secret + payload, enqueues), Queue-triggered raw writer (idempotent blob naming by
-  `transaction_id`), Timer-triggered reconciliation (6-hourly). Shared logic in `functions/shared/`
-  (`kv.py`, `monzo_auth.py`, `blob_writer.py`, `payload_validation.py`, `transactions.py`) per
+  `transaction_id`), HTTP-triggered reconciliation (also path-secret-guarded, `reconcile-trigger-secret`
+  in Key Vault) invoked ~6-hourly by `.github/workflows/reconcile.yml` — **not** a native Timer
+  trigger, which proved unreliable on Flex Consumption (confirmed zero invocations across two missed
+  ticks; a documented platform issue, see [ADR-0013](docs/decisions/0013-externally-triggered-reconciliation.md)).
+  Also `on_raw_data_created` (queue-triggered from Event Grid, see ADR-0011). Shared logic in
+  `functions/shared/` (`kv.py`, `monzo_auth.py`, `blob_writer.py`, `payload_validation.py`,
+  `path_secret.py`, `transactions.py`, `github_dispatch.py`) per
   [ADR-0004](docs/decisions/0004-single-function-app.md)/[0007](docs/decisions/0007-oauth-bootstrap-kept-out-of-cicd.md).
   Pytest coverage in `functions/tests/` (payload validation, blob idempotency, token rotation — all
   mocked, no real Monzo/Azure calls).

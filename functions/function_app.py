@@ -5,6 +5,7 @@ import azure.functions as func
 from shared.blob_writer import write_transaction
 from shared.github_dispatch import trigger_dbt_pipeline
 from shared.monzo_auth import get_access_token
+from shared.path_secret import check_path_secret
 from shared.payload_validation import validate_webhook_request
 from shared.transactions import fetch_recent_transactions
 
@@ -28,11 +29,22 @@ def raw_writer(msg: func.QueueMessage) -> None:
     write_transaction(event["data"], source="webhook")
 
 
-@app.timer_trigger(schedule="0 0 */6 * * *", arg_name="timer", run_on_startup=False)
-def reconcile(timer: func.TimerRequest) -> None:
+# Not a native Timer trigger - Flex Consumption doesn't reliably wake a scaled-to-zero app for its
+# own schedule (confirmed via App Insights: zero invocations ever, across two missed ticks, only
+# resolving on an unrelated manual HTTP request; a known, documented Flex Consumption issue, not
+# specific to this app - see docs/decisions/0013). Invoked externally instead, by a GitHub Actions
+# scheduled workflow (.github/workflows/reconcile.yml) on the same 6-hourly cadence, so the wake-up
+# doesn't depend on Azure's internal scheduler at all.
+@app.route(route="reconcile/{path_secret}", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def reconcile(req: func.HttpRequest) -> func.HttpResponse:
+    if not check_path_secret(req, "reconcile-trigger-secret"):
+        return func.HttpResponse("Not found", status_code=400)
+
     access_token = get_access_token()
     for transaction in fetch_recent_transactions(access_token):
         write_transaction(transaction, source="reconciliation")
+
+    return func.HttpResponse(status_code=200)
 
 
 # Fed by an Event Grid subscription delivering to the raw-data-events queue, not a direct

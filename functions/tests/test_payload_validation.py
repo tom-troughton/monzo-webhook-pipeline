@@ -23,33 +23,33 @@ def _request(path_secret="correct-secret", body=b""):
     )
 
 
-@patch("shared.payload_validation.get_secret", return_value="correct-secret")
+@patch("shared.path_secret.get_secret", return_value="correct-secret")
 def test_valid_transaction_created_payload_is_accepted(mock_get_secret):
     body = json.dumps({"type": "transaction.created", "data": VALID_TRANSACTION}).encode()
     assert validate_webhook_request(_request(body=body)) is None
 
 
-@patch("shared.payload_validation.get_secret", return_value="correct-secret")
+@patch("shared.path_secret.get_secret", return_value="correct-secret")
 def test_wrong_path_secret_is_rejected(mock_get_secret):
     body = json.dumps({"type": "transaction.created", "data": VALID_TRANSACTION}).encode()
     error = validate_webhook_request(_request(path_secret="guessed-secret", body=body))
     assert error == "Not found"
 
 
-@patch("shared.payload_validation.get_secret", return_value="correct-secret")
+@patch("shared.path_secret.get_secret", return_value="correct-secret")
 def test_invalid_json_is_rejected(mock_get_secret):
     error = validate_webhook_request(_request(body=b"not json"))
     assert error == "Invalid JSON"
 
 
-@patch("shared.payload_validation.get_secret", return_value="correct-secret")
+@patch("shared.path_secret.get_secret", return_value="correct-secret")
 def test_unsupported_event_type_is_rejected(mock_get_secret):
     body = json.dumps({"type": "transaction.updated", "data": VALID_TRANSACTION}).encode()
     error = validate_webhook_request(_request(body=body))
     assert error == "Unsupported event type"
 
 
-@patch("shared.payload_validation.get_secret", return_value="correct-secret")
+@patch("shared.path_secret.get_secret", return_value="correct-secret")
 def test_missing_required_field_is_rejected(mock_get_secret):
     incomplete = {k: v for k, v in VALID_TRANSACTION.items() if k != "amount"}
     body = json.dumps({"type": "transaction.created", "data": incomplete}).encode()
