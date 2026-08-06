@@ -13,21 +13,22 @@ from shared.transactions import fetch_recent_transactions
 app = func.FunctionApp()
 
 
+# Writes directly, no queue in between - see docs/decisions/0016. A Storage Queue buffer
+# (docs/decisions/0002) originally sat here specifically for automatic retry via a queue trigger,
+# but queue triggers turned out to be unreliable on this Flex Consumption app (docs/decisions/0015),
+# which made the queue actively worse than no queue: a failed write became a silent, unbounded hang
+# instead of a visible failure. Writing directly means a failed write is a failed webhook response,
+# which Monzo retries on its own - a real, working retry mechanism - and write_transaction() is
+# already idempotent, so retries are harmless either way.
 @app.route(route="webhook/{path_secret}", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-@app.queue_output(arg_name="msg", queue_name="monzo-webhook", connection="AzureWebJobsStorage")
-def webhook(req: func.HttpRequest, msg: func.Out[str]) -> func.HttpResponse:
+def webhook(req: func.HttpRequest) -> func.HttpResponse:
     error = validate_webhook_request(req)
     if error:
         return func.HttpResponse(error, status_code=400)
 
-    msg.set(req.get_body().decode())
-    return func.HttpResponse(status_code=200)
-
-
-@app.queue_trigger(arg_name="msg", queue_name="monzo-webhook", connection="AzureWebJobsStorage")
-def raw_writer(msg: func.QueueMessage) -> None:
-    event = json.loads(msg.get_body().decode())
+    event = json.loads(req.get_body().decode())
     write_transaction(event["data"], source="webhook")
+    return func.HttpResponse(status_code=200)
 
 
 # Not a native Timer trigger - Flex Consumption doesn't reliably wake a scaled-to-zero app for its

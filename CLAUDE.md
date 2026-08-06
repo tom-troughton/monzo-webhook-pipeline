@@ -76,14 +76,21 @@ for the reasoning already applied to the Function App hosting plan.
   be inspected directly (`gh run list`, `gh run view <id> --log-failed`) instead of relying on
   copy-pasted logs.
 - `functions/` — Function App code (Python v2 model, single `function_app.py`): HTTP webhook
-  (validates path secret + payload, enqueues), Queue-triggered raw writer (idempotent blob naming by
-  `transaction_id`), HTTP-triggered reconciliation (also path-secret-guarded, `reconcile-trigger-secret`
-  in Key Vault) invoked ~6-hourly by `.github/workflows/reconcile.yml` — **not** a native Timer
-  trigger, which proved unreliable on Flex Consumption (confirmed zero invocations across two missed
-  ticks; a documented platform issue, see [ADR-0013](docs/decisions/0013-externally-triggered-reconciliation.md)).
-  Also `on_raw_data_created` (queue-triggered from Event Grid, see ADR-0011). Shared logic in
-  `functions/shared/` (`kv.py`, `monzo_auth.py`, `blob_writer.py`, `payload_validation.py`,
-  `path_secret.py`, `transactions.py`, `github_dispatch.py`) per
+  (validates path secret + payload, writes directly to `raw/` — no queue in between; see
+  [ADR-0016](docs/decisions/0016-webhook-writes-directly-no-queue.md), which reverses
+  [ADR-0002](docs/decisions/0002-storage-queue-buffer.md) now that queue triggers are known
+  unreliable on this app), HTTP-triggered reconciliation (also path-secret-guarded,
+  `reconcile-trigger-secret` in Key Vault) invoked ~6-hourly by `.github/workflows/reconcile.yml` —
+  **not** a native Timer trigger, which proved unreliable on Flex Consumption (confirmed zero
+  invocations across two missed ticks; a documented platform issue, see
+  [ADR-0013](docs/decisions/0013-externally-triggered-reconciliation.md)). Also
+  `on_raw_data_created` — HTTP-triggered from an Event Grid `webhook_endpoint`, not
+  `azure_function_endpoint` (confirmed platform bug, ADR-0011) or a queue (same reliability problem
+  as the Timer trigger, ADR-0015). Every trigger on this Function App is HTTP now — the only trigger
+  type proven reliable on this Flex Consumption app across every attempt this project has made.
+  Shared logic in `functions/shared/` (`kv.py`, `monzo_auth.py`, `blob_writer.py`,
+  `payload_validation.py`, `path_secret.py`, `transactions.py`, `github_dispatch.py`,
+  `event_grid.py`) per
   [ADR-0004](docs/decisions/0004-single-function-app.md)/[0007](docs/decisions/0007-oauth-bootstrap-kept-out-of-cicd.md).
   Pytest coverage in `functions/tests/` (payload validation, blob idempotency, token rotation — all
   mocked, no real Monzo/Azure calls).
@@ -300,12 +307,10 @@ API (`github-dispatch-token` in Key Vault, the one deliberate exception to OIDC-
 ADR-0011), and `dbt.yml` triggers on `repository_dispatch` alongside push/cron/manual. The nightly
 cron stays as the reliability fallback regardless.
 
-**Known risk, not yet verified:** `raw_writer` (the webhook-ingestion queue trigger on
-`monzo-webhook`) is the same trigger type that just turned out to be unreliable above, and hasn't
-been proven working with real traffic — it may currently be silently broken the same way. Not fixed
-yet; flagged in ADR-0015's consequences. HTTP is the only trigger type trusted by default on this
-Flex Consumption app now — treat that as the working assumption for anything new, not something to
-re-discover per trigger.
+**Resolved:** the equivalent risk on the webhook path (`raw_writer`'s queue trigger on
+`monzo-webhook`) was pre-emptively fixed rather than left to fail the same way — see
+[ADR-0016](docs/decisions/0016-webhook-writes-directly-no-queue.md). `webhook` now writes to `raw/`
+directly, no queue involved. Every trigger on this Function App is HTTP now.
 
 **Not yet built:**
 - dbt docs hosting, per the spec's Future Enhancements section (no CI step generates docs currently

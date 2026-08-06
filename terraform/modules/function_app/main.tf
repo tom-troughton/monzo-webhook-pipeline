@@ -101,8 +101,3 @@ resource "azurerm_role_assignment" "storage_blob_data_owner" {
   principal_id         = azurerm_function_app_flex_consumption.main.identity[0].principal_id
 }
 
-resource "azurerm_role_assignment" "storage_queue_data_contributor" {
-  scope                = var.storage_account_id
-  role_definition_name = "Storage Queue Data Contributor"
-  principal_id         = azurerm_function_app_flex_consumption.main.identity[0].principal_id
-}

@@ -58,10 +58,6 @@ resource "azurerm_storage_blob" "monzo_refresh_lock" {
   source_content       = ""
 }
 
-resource "azurerm_storage_queue" "webhook" {
-  name               = "monzo-webhook"
-  storage_account_id = azurerm_storage_account.main.id
-}
 
 # Data-plane access to the main storage account requires an explicit RBAC grant even for the
 # subscription owner - Contributor at the resource group scope only covers control-plane

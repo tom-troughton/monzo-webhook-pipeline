@@ -1,6 +1,6 @@
 # 0002. Storage Queue buffer between webhook and raw blob write
 
-Status: Accepted
+Status: Superseded by [ADR-0016](0016-webhook-writes-directly-no-queue.md)
 Date: 2026-08-04
 
 ## Context
