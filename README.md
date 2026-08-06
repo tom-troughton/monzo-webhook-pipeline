@@ -11,24 +11,30 @@ Rationale for individual design decisions: [docs/decisions/](docs/decisions/) (A
 ## Architecture
 
 ```text
-Monzo Webhook                          Monzo API
-      │                                     │
-      ▼                                     │ (not yet deployed - blocked on
-Azure Function (HTTP trigger)               │  Function App quota; scripts/
-  validate secret path + payload,           │  backfill_transactions.py fills
-  enqueue, ack fast                         │  in manually for now)
-      │                                     │
-      ▼                                     │
-Storage Queue                               │
-  decouples "acknowledge Monzo"             │
-  from "durably persist"                    │
-      │                                     │
-      ▼                                     ▼
+Monzo Webhook                              Monzo API
+      │                                         │
+      ▼                                         │ fetched ~6-hourly, triggered by
+Azure Function (HTTP)                           │ a GitHub Actions cron - not a
+  validate secret path + payload,                │ native Timer trigger (see "A
+  write straight to raw/ - no queue               │ debugging story" below)
+  in between (see ADR-0016)                      ▼
+      │                              Azure Function (HTTP)
+      │                                fetch + write to raw/
+      ▼                                         │
             Blob Storage — raw/ (immutable JSON)
+                          │
+                          ▼
+             Event Grid (BlobCreated, raw/ only)
+                          │
+                          ▼
+          Azure Function (HTTP, Event Grid webhook)
+              → GitHub repository_dispatch
                           │
                           ▼
        GitHub Actions → dbt (incremental models,
               DuckDB as execution engine)
+        (also nightly cron + manual, as a fallback
+         if the event-driven path is ever missed)
                           │
                           ▼
      Blob Storage — staging/ + marts/ (curated Parquet)
@@ -45,14 +51,53 @@ Storage Queue                               │
 
 Webhooks are treated as low-latency notifications, never as the source of truth — the scheduled
 reconciliation job against the Monzo API is authoritative. See
-[ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md). Until that Function is
-deployed, `raw/` is populated by a one-off manual backfill script instead (same underlying write
-path the Function will eventually use) — see "Current status" below.
+[ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md).
+
+**Every trigger in this pipeline is HTTP**, which wasn't the original design — see below.
+
+## A debugging story worth reading
+
+The original design used Azure-native triggers throughout: a Timer trigger for reconciliation, a
+Storage Queue + queue trigger for both the webhook write and the Event Grid → dbt hookup, and Event
+Grid delivering directly to the Function App. Getting the pipeline to actually run in production
+surfaced that almost none of that worked as documented, on the specific hosting plan this project
+ended up on (Flex Consumption, itself a fallback after the originally-planned plan hit an
+unresolved Azure capacity quota — [ADR-0012](docs/decisions/0012-flex-consumption-hosting-plan.md)):
+
+- **Event Grid → Function App directly** failed with a platform-level endpoint-validation error —
+  confirmed as a genuine Azure bug, not a config mistake, by reproducing it identically through
+  both Terraform *and* the Azure Portal UI directly. ([ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md))
+- **Timer triggers don't reliably fire** on a scaled-to-zero Flex Consumption app — confirmed via
+  Application Insights showing zero invocations across two missed scheduled ticks, only waking on
+  an unrelated HTTP request. Fixed by driving reconciliation from a GitHub Actions cron instead of
+  Azure's own scheduler. ([ADR-0013](docs/decisions/0013-externally-triggered-reconciliation.md))
+- **Queue triggers have the same problem.** A Storage Queue was tried as the Event Grid destination
+  instead; Event Grid's own metrics confirmed every event was published and delivered successfully,
+  but the queue-triggered function never consumed any of them. Fixed by switching Event Grid to
+  call an HTTP endpoint directly, implementing its subscription-validation handshake in code.
+  ([ADR-0015](docs/decisions/0015-event-grid-webhook-endpoint.md))
+- **The webhook's own queue buffer got removed pre-emptively** once queue triggers were known
+  unreliable — rather than wait for it to fail silently too, `webhook` now writes to `raw/`
+  directly. ([ADR-0016](docs/decisions/0016-webhook-writes-directly-no-queue.md))
+- Smaller findings along the way: a missing app setting that only "worked" locally because of a
+  `.env` file that never deploys; a Key Vault role that was read-only when the design always
+  required write access; the Functions host's own internal secret-key management failing under
+  identity-only storage auth; `func` CLI's post-deploy health check reporting false failures.
+
+None of this was caught by the unit test suite (which passes cleanly throughout and mocks every
+Azure/Monzo call) — it's the kind of thing that only shows up by exercising the real deployed
+system, which is exactly what happened. See [docs/decisions/](docs/decisions/) for the full,
+evidence-based trail on each one.
 
 ## What this project demonstrates
 
-- **Reliable ingestion under an unreliable delivery guarantee** — webhook + queue + reconciliation +
-  idempotent writes, rather than trusting a single webhook call ([ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md), [ADR-0002](docs/decisions/0002-storage-queue-buffer.md)).
+- **Reliable ingestion under an unreliable delivery guarantee** — webhook + reconciliation +
+  idempotent writes, rather than trusting a single webhook call
+  ([ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)).
+- **Diagnosing real platform bugs, not just assuming it's your own code** — every claim above is
+  backed by direct evidence (Application Insights queries, Event Grid delivery metrics, reproducing
+  a failure through two independent tools) rather than guesswork, and the architecture was adapted
+  to what was actually confirmed to work, not what the docs said should work.
 - **Infrastructure as code with real guardrails** — Terraform modules plus a subscription-wide Azure
   Policy module (`cost_guardrails`) that denies VM creation and restricts SKUs to non-Premium tiers,
   so a mistake can't silently produce a large bill.
@@ -63,80 +108,78 @@ path the Function will eventually use) — see "Current status" below.
   See the "Cost discipline" section in [CLAUDE.md](CLAUDE.md).
 - **Secretless CI** — GitHub Actions authenticates to Azure via OIDC federated credentials, not a
   stored Service Principal secret, for both the infra/app deploy pipeline and the dbt pipeline
-  ([ADR-0005](docs/decisions/0005-oidc-for-github-actions.md)).
+  ([ADR-0005](docs/decisions/0005-oidc-for-github-actions.md)). One deliberate, scoped exception:
+  Azure calling *out* to GitHub's API has no OIDC equivalent, so a single fine-grained PAT is used
+  there ([ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md)).
 - **Designing for real data, not just the happy path** — real Monzo API responses immediately broke
   assumptions synthetic test fixtures had masked (optional fields omitted rather than sent as
   `null`, empty-string sentinels instead of `null`, an unanticipated category value) - the dbt
   layer now declares an explicit schema instead of relying on inference, and a taxonomy-drift test
   warns instead of hard-failing the pipeline. See the dbt bullet in [CLAUDE.md](CLAUDE.md)'s
   "Current state" for the specifics.
-- **A decision log, not just code** — every non-obvious architectural choice (including ones later
-  reversed, like rejecting ADLS Gen2 hierarchical namespace after re-examining the justification) is
-  written down with its reasoning in [docs/decisions/](docs/decisions/).
+- **A decision log, not just code** — every non-obvious architectural choice, including ones later
+  reversed as new evidence came in (rejecting ADLS Gen2 hierarchical namespace, reversing the
+  webhook's own queue buffer once queue triggers proved unreliable), is written down with its
+  reasoning in [docs/decisions/](docs/decisions/).
 
 ## Tech stack
 
-Azure Functions · Azure Blob Storage · Azure Storage Queue · Azure Key Vault · Terraform · Python ·
-DuckDB · dbt · GitHub Actions · MCP
+Azure Functions (Flex Consumption) · Azure Blob Storage · Azure Event Grid · Azure Key Vault ·
+Terraform · Python · DuckDB · dbt · GitHub Actions · MCP
 
 ## Current status
 
-**Built:**
+Fully built and deployed - infrastructure, Function App, dbt pipeline, and MCP server are all live.
+
 - **Infrastructure** (`terraform/`): resource group, storage account (`raw/`, `staging/`, `marts/`
   containers, RBAC least-privileged per identity — see [CLAUDE.md](CLAUDE.md) for the exact grants),
-  Storage Queue, Key Vault module, Function App module (Consumption plan, managed-identity-only
-  access), `cost_guardrails` (subscription-wide Azure Policy: no VMs, no Premium SKUs), and
-  `github_oidc` (federated credentials, no stored Azure secret).
-- **Function App code** (`functions/`): HTTP webhook, queue-triggered raw writer, timer-triggered
-  reconciliation, with shared Monzo auth/blob-writer/validation modules and pytest coverage
-  (all mocked — no real Monzo/Azure calls in tests). Not deployed yet — see "Blocked" below.
+  Key Vault, Function App module (Flex Consumption, managed-identity-only access), Event Grid,
+  `cost_guardrails` (subscription-wide Azure Policy: no VMs, no Premium SKUs), and `github_oidc`
+  (federated credentials, no stored Azure secret).
+- **Function App code** (`functions/`): every trigger is HTTP, driven externally where Azure's own
+  native triggers proved unreliable — see "A debugging story worth reading" above.
+  - `webhook` — validates the path secret + payload, writes straight to `raw/`.
+  - `reconcile` — fetches recent transactions from the Monzo API, invoked ~6-hourly by
+    `.github/workflows/reconcile.yml`.
+  - `on_raw_data_created` — Event Grid's webhook destination for new `raw/` blobs, triggers the dbt
+    pipeline via GitHub's `repository_dispatch` API.
+  Shared Monzo auth (with a blob-lease lock around token refreshes - Monzo forbids concurrent
+  refresh attempts, see [ADR-0014](docs/decisions/0014-monzo-refresh-token-locking.md)),
+  blob-writer, and validation modules, with pytest coverage (all mocked — no real Monzo/Azure calls
+  in tests).
 - **dbt project** (`dbt/`), verified end-to-end against both local synthetic fixtures and real Blob
-  Storage: `stg_transactions` (scoped to a recent window once there's a watermark, deduping
-  webhook vs. reconciliation sources) → dimension/fact models → 4 curated marts, materialized
-  straight to Parquet in `staging/`/`marts/`.
+  Storage: `stg_transactions` (incremental, deduping webhook vs. reconciliation sources) →
+  dimension/fact models → 4 curated marts, materialized straight to Parquet in `staging/`/`marts/`.
   Two targets - `dev` (local fixtures, no cloud calls) and `azure` (the real containers, via
   DuckDB's `azure` extension with OIDC/`credential_chain` auth, no stored secret).
-- **`.github/workflows/`**: `deploy.yml` (Terraform plan/apply + Function publish, OIDC) and
-  `dbt.yml` (dbt build against fixtures on every PR, against real Blob Storage on push to
-  `master`/nightly cron/manual dispatch).
-- **`raw/`/`staging/`/`marts/` hold my real transaction history**, not synthetic data —
-  `scripts/backfill_transactions.py` pulled it via the Monzo API (manual, one-off, ahead of the
-  reconciliation Function being deployed) using the exact same write path that Function will
-  eventually use.
-- **Operational scripts** (`scripts/`): one-time OAuth bootstrap, API sanity checks, the backfill
-  above, and `query_marts.py` for ad-hoc SQL against the real marts.
+- **`.github/workflows/`**: `deploy.yml` (Terraform plan/apply + Function publish, OIDC),
+  `dbt.yml` (dbt build against fixtures on every PR; against real Blob Storage on push to
+  `master`, nightly cron, manual dispatch, or `repository_dispatch` from the Event Grid handler),
+  and `reconcile.yml` (the external trigger replacing the native Timer trigger).
+- **`raw/`/`staging/`/`marts/` hold my real transaction history**, not synthetic data.
+- **Operational scripts** (`scripts/`): one-time OAuth bootstrap, webhook registration, API sanity
+  checks, a one-off historical backfill, and `query_marts.py` for ad-hoc SQL against the real marts.
 - **MCP server** (`mcp_server/`): the 5 curated tools the spec names — `get_spend_by_category`,
   `get_monthly_cashflow`, `get_top_merchants`, `get_subscriptions`, `get_data_quality_report` — over
   the same marts, plus pytest coverage against an in-memory DuckDB (no real Azure access needed to
   run the tests). Runs locally/on-demand over stdio (`python -m mcp_server.server`), not hosted, per
   the spec's intent.
 
-**Resolved:** the `Y1` Consumption plan's App Service quota is still stuck at 0 subscription-wide —
-Azure's Capacity Management team confirmed it's a genuine capacity constraint with no committed
-timeline, not a policy issue. Rather than keep waiting, switched to **Flex Consumption (`FC1`)** — a
-different App Service Plan SKU/quota dimension, still fully consumption-priced. `func-monzode-dev`
-is now deployed and running. See [ADR-0012](docs/decisions/0012-flex-consumption-hosting-plan.md).
-
-**Now fully live:** the Function code is deployed and verified healthy via CI — all 3 functions
-(`webhook`, `raw_writer`, `reconcile`) are running. `raw/`/`staging/`/`marts/` still reflect the
-earlier one-off manual backfill until new transactions actually flow through the live path and the
-6-hourly reconciliation job runs.
-
-**Not yet built:** the Event Grid (blob-created) trigger for near-real-time dbt runs (currently
-push/cron/manual only — see [ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md)
-for why, and the design once the Function App quota clears), dbt docs hosting (generated in CI,
-just not hosted anywhere yet).
+**Not built, by design:** dbt docs hosting (the site can be generated, just isn't hosted anywhere -
+low priority for a project this size; GitHub Pages would be the natural free option if pursued),
+on-demand backfill for an arbitrary date range (the spec mentions it, out of scope for now), ADLS
+Gen2 hierarchical namespace (evaluated and rejected — [ADR-0008](docs/decisions/0008-adls-gen2-hierarchical-namespace.md)).
 
 ## Repository layout
 
 ```
-terraform/    infrastructure as code (modules: storage, key_vault, function_app, cost_guardrails, github_oidc)
-functions/    deployed Azure Functions app (Python v2 model) — webhook, queue processor, reconciliation
+terraform/    infrastructure as code (modules: storage, key_vault, function_app, event_grid, cost_guardrails, github_oidc)
+functions/    deployed Azure Functions app (Python v2 model) — webhook, reconciliation, Event Grid handler, all HTTP-triggered
 dbt/          dbt-duckdb transformation layer — staging → dims/fact → marts, published as Parquet
 scripts/      manual/local-only operational tooling (OAuth bootstrap, backfill, mart queries) — never run in CI
 mcp_server/   MCP server exposing 5 curated tools over the dbt marts, runs locally over stdio
 docs/         full spec + architecture decision records
-.github/      CI: infra/app deploy, dbt build/publish
+.github/      CI: infra/app deploy, dbt build/publish, external reconciliation trigger
 ```
 
 See [ADR-0006](docs/decisions/0006-monorepo-layout.md) for why this is one repo, laid out by
@@ -153,7 +196,8 @@ pytest mcp_server/tests
 ```
 
 Both are unit tests against mocked Azure/Monzo clients or an in-memory DuckDB — nothing here
-touches a real account or real infrastructure.
+touches a real account or real infrastructure, and nothing here would catch the platform-specific
+issues described above (see "A debugging story worth reading").
 
 ## Running dbt
 
