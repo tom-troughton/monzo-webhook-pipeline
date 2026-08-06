@@ -44,6 +44,13 @@ for the reasoning already applied to the Function App hosting plan.
   `for_each`/`toset`, this actually made CI destroy the human deployer's own Key Vault access when it
   ran `apply` (the set collapsed to just CI's identity from CI's point of view). Use the fixed
   `var.owner_object_id` variable instead for any permission grant meant for a specific person.
+- **Never call Monzo's token refresh from two places without the lock.** Refresh tokens are
+  single-use and Monzo explicitly disallows concurrent refresh attempts — a second caller presenting
+  an already-rotated token invalidates the whole token family, recoverable only via a full new
+  interactive consent flow (re-running `scripts/monzo_oauth.py`). `functions/shared/monzo_auth.py`'s
+  `_refresh_lock()` (an Azure Blob lease on `locks/monzo-refresh-token.lock`) exists specifically to
+  prevent this — don't bypass it or duplicate the refresh logic elsewhere. See
+  [docs/decisions/0014-monzo-refresh-token-locking.md](docs/decisions/0014-monzo-refresh-token-locking.md).
 
 ## Current state (update as things land)
 

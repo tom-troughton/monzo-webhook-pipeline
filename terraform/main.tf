@@ -40,6 +40,24 @@ resource "azurerm_storage_container" "layers" {
   container_access_type = "private"
 }
 
+# Monzo refresh tokens are single-use and explicitly forbid concurrent refresh attempts - using an
+# already-rotated token invalidates the whole token family, recoverable only via a full new
+# interactive consent flow (see docs/decisions/0014). This blob is leased by
+# functions/shared/monzo_auth.py around each refresh exchange so overlapping callers wait instead
+# of racing. Terraform-provisioned (not created lazily by app code) so a lease is always acquirable.
+resource "azurerm_storage_container" "locks" {
+  name                  = "locks"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
+resource "azurerm_storage_blob" "monzo_refresh_lock" {
+  name                 = "monzo-refresh-token.lock"
+  storage_container_id = azurerm_storage_container.locks.id
+  type                 = "Block"
+  source_content       = ""
+}
+
 resource "azurerm_storage_queue" "webhook" {
   name               = "monzo-webhook"
   storage_account_id = azurerm_storage_account.main.id

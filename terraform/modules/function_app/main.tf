@@ -64,6 +64,12 @@ resource "azurerm_function_app_flex_consumption" "main" {
     # Read by shared/github_dispatch.py's Event Grid handler (docs/decisions/0011).
     GITHUB_REPO_OWNER = var.github_repo_owner
     GITHUB_REPO_NAME  = var.github_repo_name
+    # The host's default (Blob, in azure-webjobs-secrets) fails to authenticate under an
+    # identity-only AzureWebJobsStorage connection - that internal operation apparently still
+    # needs account-key auth, which we don't provide. Irrelevant anyway since every route here
+    # uses AuthLevel.ANONYMOUS and never touches function-level keys - just stop the host
+    # managing them via blob storage at all. See docs/decisions/0013.
+    AzureWebJobsSecretStorageType = "files"
   }
 
   tags = {
