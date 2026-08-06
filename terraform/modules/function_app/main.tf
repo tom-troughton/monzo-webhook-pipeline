@@ -61,6 +61,12 @@ resource "azurerm_function_app_flex_consumption" "main" {
     # Identity-based AzureWebJobsStorage - no top-level storage_account_name/storage_uses_managed_identity
     # argument exists on this resource type (unlike azurerm_linux_function_app).
     AzureWebJobsStorage__accountName = var.storage_account_name
+    # Read directly by our own code (shared/blob_writer.py, shared/monzo_auth.py's lock) - a
+    # distinct setting from AzureWebJobsStorage__accountName above, which the Functions host uses
+    # for its own internal bindings. Missing this was a silent bug: it only "worked" locally
+    # because .env sets it there, and .env never deploys - nothing caught it until reconcile
+    # actually ran far enough in the deployed app to hit code that needed it.
+    STORAGE_ACCOUNT_NAME = var.storage_account_name
     # Read by shared/github_dispatch.py's Event Grid handler (docs/decisions/0011).
     GITHUB_REPO_OWNER = var.github_repo_owner
     GITHUB_REPO_NAME  = var.github_repo_name

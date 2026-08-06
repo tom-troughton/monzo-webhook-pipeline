@@ -1,7 +1,13 @@
 # 0011. Event Grid trigger for the dbt pipeline
 
-Status: Accepted
+Status: Accepted (destination superseded by [ADR-0015](0015-event-grid-webhook-endpoint.md))
 Date: 2026-08-05 (implemented 2026-08-06)
+
+**Note:** the Storage Queue destination described below (point 2) was itself replaced shortly after
+- queue-triggered functions turned out to have the same Flex Consumption wake-up problem Timer
+triggers did (see [ADR-0013](0013-externally-triggered-reconciliation.md)). The rest of this
+ADR (subject filtering, the GitHub token exception, the `azure_function_endpoint` bug diagnosis)
+still stands; only the delivery mechanism changed. See ADR-0015 for the current design.
 
 ## Context
 

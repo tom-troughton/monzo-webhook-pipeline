@@ -286,15 +286,26 @@ change organically as new transactions occur and reconciliation runs on its 6-ho
 
 **Built (event-driven dbt trigger):** Event Grid (`terraform/modules/event_grid/`) watches `raw/`
 for `BlobCreated` events (subject-filtered to `raw/` specifically, so dbt rewriting `staging/`/
-`marts/` on the same storage account can't retrigger itself) and delivers to a Storage Queue
-(`raw-data-events`) — not directly to the Function App via `azure_function_endpoint`, which hit a
-confirmed Azure platform bug with Flex Consumption (reproduced identically via Terraform and the
-Portal UI directly; see [ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md) for
-the full diagnosis). A new `on_raw_data_created` queue-triggered function calls GitHub's
-`repository_dispatch` API (`github-dispatch-token` in Key Vault, the one deliberate exception to
-OIDC-only CI auth — see ADR-0011), and `dbt.yml` now also triggers on `repository_dispatch`
-alongside the existing push/cron/manual triggers. The nightly cron stays as the reliability
-fallback regardless.
+`marts/` on the same storage account can't retrigger itself) and delivers straight to
+`on_raw_data_created`, an **HTTP-triggered** route (`webhook_endpoint` destination, with Event
+Grid's one-time subscription-validation handshake implemented in `functions/shared/event_grid.py`).
+Two earlier delivery mechanisms were tried and rejected first: `azure_function_endpoint` hit a
+confirmed Azure platform bug (reproduced identically via Terraform and the Portal UI - see
+[ADR-0011](docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md)), and a Storage Queue +
+`queue_trigger` turned out to have the same Flex Consumption scale-to-zero wake-up problem
+`reconcile`'s old Timer trigger had - Event Grid delivered every event successfully, but nothing
+ever consumed them (see [ADR-0015](docs/decisions/0015-event-grid-webhook-endpoint.md)). Confirmed
+working end-to-end with a real test write. `on_raw_data_created` calls GitHub's `repository_dispatch`
+API (`github-dispatch-token` in Key Vault, the one deliberate exception to OIDC-only CI auth — see
+ADR-0011), and `dbt.yml` triggers on `repository_dispatch` alongside push/cron/manual. The nightly
+cron stays as the reliability fallback regardless.
+
+**Known risk, not yet verified:** `raw_writer` (the webhook-ingestion queue trigger on
+`monzo-webhook`) is the same trigger type that just turned out to be unreliable above, and hasn't
+been proven working with real traffic — it may currently be silently broken the same way. Not fixed
+yet; flagged in ADR-0015's consequences. HTTP is the only trigger type trusted by default on this
+Flex Consumption app now — treat that as the working assumption for anything new, not something to
+re-discover per trigger.
 
 **Not yet built:**
 - dbt docs hosting, per the spec's Future Enhancements section (no CI step generates docs currently

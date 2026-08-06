@@ -9,3 +9,8 @@ output "key_vault_name" {
 output "key_vault_uri" {
   value = azurerm_key_vault.main.vault_uri
 }
+
+output "event_grid_trigger_secret" {
+  value     = random_password.event_grid_trigger_secret.result
+  sensitive = true
+}

@@ -1,5 +1,6 @@
-# Near-real-time dbt trigger (docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md) -
-# additive to the nightly cron/manual dbt.yml triggers, not a replacement for them.
+# Near-real-time dbt trigger (docs/decisions/0011-event-grid-trigger-for-dbt-pipeline.md,
+# docs/decisions/0015-event-grid-webhook-endpoint.md) - additive to the nightly cron/manual
+# dbt.yml triggers, not a replacement for them.
 
 resource "azurerm_eventgrid_system_topic" "raw_blob_created" {
   name                = "evgt-${var.project_name}-${var.environment}"
@@ -9,20 +10,13 @@ resource "azurerm_eventgrid_system_topic" "raw_blob_created" {
   topic_type          = "Microsoft.Storage.StorageAccounts"
 }
 
-# Delivers to a Storage Queue, not directly to the Function via azure_function_endpoint - that
-# destination type hits a confirmed Azure platform bug (reproduces identically via the Portal and
-# Terraform: "Endpoint validation: Destination endpoint not found... Resource should pre-exist",
-# even when the function demonstrably already exists and is correctly indexed). Storage Queue
-# destinations skip whatever extra function-indexing layer that validation depends on - the queue
-# itself is visible to Event Grid the instant Terraform creates it, no separate discovery step.
-resource "azurerm_storage_queue" "raw_data_events" {
-  name               = "raw-data-events"
-  storage_account_id = var.storage_account_id
-}
-
-# Subject-filtered to raw/ specifically, not the whole storage account - staging/ and marts/ live
-# on the same account and get rewritten by dbt every run, so an unfiltered subscription would have
-# the pipeline retrigger itself in a loop the moment it wrote its own output.
+# Delivers straight to the Function's HTTP endpoint (webhook_endpoint), not azure_function_endpoint
+# (confirmed Azure platform bug - see ADR-0011) or a Storage Queue consumed via queue_trigger
+# (queue-triggered functions have the same Flex Consumption scale-to-zero wake-up problem the Timer
+# trigger had - see ADR-0015; Event Grid delivered every event to the queue successfully, but
+# nothing ever consumed them). HTTP triggers have proven reliable on this app every other time -
+# webhook_endpoint requires implementing Event Grid's one-time subscription-validation handshake,
+# handled in functions/shared/event_grid.py.
 resource "azurerm_eventgrid_system_topic_event_subscription" "raw_blob_created" {
   name                = "evgs-${var.project_name}-${var.environment}-raw"
   system_topic        = azurerm_eventgrid_system_topic.raw_blob_created.name
@@ -34,8 +28,9 @@ resource "azurerm_eventgrid_system_topic_event_subscription" "raw_blob_created" 
     subject_begins_with = "/blobServices/default/containers/raw/"
   }
 
-  storage_queue_endpoint {
-    storage_account_id = var.storage_account_id
-    queue_name         = azurerm_storage_queue.raw_data_events.name
+  webhook_endpoint {
+    url                               = "https://${var.function_app_hostname}/api/on_raw_data_created/${var.event_grid_trigger_secret}"
+    max_events_per_batch              = 1
+    preferred_batch_size_in_kilobytes = 64
   }
 }

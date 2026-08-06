@@ -130,9 +130,15 @@ module "function_app" {
   github_repo_name  = var.github_repo
 }
 
+# Secrets Officer (read/write), not just User (read-only) - the reconciliation Function has always
+# been documented as rotating monzo-refresh-token itself after every use (Monzo invalidates the
+# previous token on use), but this was never actually exercised against the deployed app's own
+# identity until now: local scripts "worked" because they ran under the owner's identity, which
+# already had write access via secret_officer_object_ids. Discovered as a real 403 the first time
+# reconcile got far enough in the deployed app to actually attempt a rotation.
 resource "azurerm_role_assignment" "function_app_kv_reader" {
   scope                = module.key_vault.key_vault_id
-  role_definition_name = "Key Vault Secrets User"
+  role_definition_name = "Key Vault Secrets Officer"
   principal_id         = module.function_app.principal_id
 }
 
@@ -145,6 +151,9 @@ module "event_grid" {
   resource_group_name = azurerm_resource_group.main.name
 
   storage_account_id = azurerm_storage_account.main.id
+
+  function_app_hostname     = module.function_app.default_hostname
+  event_grid_trigger_secret = module.key_vault.event_grid_trigger_secret
 }
 
 module "github_oidc" {

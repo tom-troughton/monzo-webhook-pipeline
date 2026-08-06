@@ -47,6 +47,11 @@ resource "random_password" "reconcile_trigger_secret" {
   special = false
 }
 
+resource "random_password" "event_grid_trigger_secret" {
+  length  = 32
+  special = false
+}
+
 resource "azurerm_key_vault_secret" "monzo_client_id" {
   name         = "monzo-client-id"
   value        = var.monzo_client_id
@@ -92,6 +97,13 @@ resource "azurerm_key_vault_secret" "webhook_path_secret" {
 resource "azurerm_key_vault_secret" "reconcile_trigger_secret" {
   name         = "reconcile-trigger-secret"
   value        = random_password.reconcile_trigger_secret.result
+  key_vault_id = azurerm_key_vault.main.id
+  depends_on   = [azurerm_role_assignment.secrets_officer]
+}
+
+resource "azurerm_key_vault_secret" "event_grid_trigger_secret" {
+  name         = "event-grid-trigger-secret"
+  value        = random_password.event_grid_trigger_secret.result
   key_vault_id = azurerm_key_vault.main.id
   depends_on   = [azurerm_role_assignment.secrets_officer]
 }

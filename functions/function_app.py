@@ -3,6 +3,7 @@ import json
 import azure.functions as func
 
 from shared.blob_writer import write_transaction
+from shared.event_grid import validation_response
 from shared.github_dispatch import trigger_dbt_pipeline
 from shared.monzo_auth import get_access_token
 from shared.path_secret import check_path_secret
@@ -47,12 +48,23 @@ def reconcile(req: func.HttpRequest) -> func.HttpResponse:
     return func.HttpResponse(status_code=200)
 
 
-# Fed by an Event Grid subscription delivering to the raw-data-events queue, not a direct
-# azure_function_endpoint - that destination type hits a confirmed Azure platform bug with Flex
-# Consumption (see docs/decisions/0011). Subject-filtered to the raw/ container at the Event Grid
-# subscription level - staging/ and marts/ live on the same storage account and get rewritten by
-# dbt every run, so an unfiltered subscription would have the pipeline retrigger itself. The queue
-# message content (a Storage BlobCreated event) is irrelevant here - arrival alone is the signal.
-@app.queue_trigger(arg_name="msg", queue_name="raw-data-events", connection="AzureWebJobsStorage")
-def on_raw_data_created(msg: func.QueueMessage) -> None:
+# An HTTP route, not azure_function_endpoint (confirmed Azure platform bug, ADR-0011) or a
+# queue_trigger consumed from a Storage Queue (queue-triggered functions have the same Flex
+# Consumption scale-to-zero wake-up problem the Timer trigger had - Event Grid delivered every
+# event to the queue successfully, but nothing ever consumed them; see ADR-0015). Event Grid's
+# webhook_endpoint destination requires echoing back its one-time subscription-validation code -
+# see shared/event_grid.py. Subject-filtered to the raw/ container at the Event Grid subscription
+# level - staging/ and marts/ live on the same storage account and get rewritten by dbt every run,
+# so an unfiltered subscription would have the pipeline retrigger itself.
+@app.route(route="on_raw_data_created/{path_secret}", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def on_raw_data_created(req: func.HttpRequest) -> func.HttpResponse:
+    if not check_path_secret(req, "event-grid-trigger-secret"):
+        return func.HttpResponse("Not found", status_code=400)
+
+    events = req.get_json()
+    validation = validation_response(events)
+    if validation is not None:
+        return func.HttpResponse(json.dumps(validation), status_code=200, mimetype="application/json")
+
     trigger_dbt_pipeline()
+    return func.HttpResponse(status_code=200)
