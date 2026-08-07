@@ -22,6 +22,9 @@ from azure.storage.blob import BlobLeaseClient, BlobServiceClient
 from .kv import get_secret, set_secret
 
 REFRESH_LOCK_TIMEOUT_SECONDS = 30
+# A hung token exchange is worse than a slow one: it holds the blob lease while it waits, blocking
+# every other caller until the 60s lease expires. Nothing here should wait on Monzo indefinitely.
+TOKEN_TIMEOUT_SECONDS = 30
 
 
 @lru_cache
@@ -54,7 +57,7 @@ def _exchange(**grant_params) -> dict:
         "client_id": get_secret("monzo-client-id"),
         "client_secret": get_secret("monzo-client-secret"),
         **grant_params,
-    })
+    }, timeout=TOKEN_TIMEOUT_SECONDS)
     response.raise_for_status()
     tokens = response.json()
     set_secret("monzo-refresh-token", tokens["refresh_token"])
