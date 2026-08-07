@@ -1,6 +1,7 @@
 # 0010. Detecting a dead reconciliation job
 
-Status: Rejected (Azure Monitor approach) - see Consequences for the path forward
+Status: Rejected (Azure Monitor approach); the path forward it sketched is now built - see
+[ADR-0017](0017-reconciliation-heartbeat-blob.md)
 Date: 2026-08-05
 
 ## Context
@@ -41,3 +42,9 @@ fire wasn't judged worth it.
   reconciliation Function.
 - Not yet built. Revisit once there's appetite to spend the implementation effort on the free-tier
   version, or if the cost tolerance changes.
+
+**Update (2026-08-07):** built, as [ADR-0017](0017-reconciliation-heartbeat-blob.md). It kept this
+ADR's core reasoning (heartbeat logic, executed from a free scheduled GitHub Actions workflow) but
+took the signal from a blob the reconcile Function writes itself rather than from an Application
+Insights query - simpler, needs no Monitoring Reader grant, and avoids depending on log retention.
+The gap described above is no longer open.

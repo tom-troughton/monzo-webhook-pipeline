@@ -1,0 +1,137 @@
+name: Pipeline health
+
+# Detects a pipeline that has silently stopped working. Every other workflow here proves it can
+# fail loudly when it runs; none of them detect the failures that produce no run at all - a
+# revoked Monzo refresh token, a Function App that stopped responding, a dbt publish that quietly
+# stopped happening. See docs/decisions/0017-reconciliation-heartbeat-blob.md, which supersedes
+# the Azure Monitor design rejected on cost in ADR-0010.
+#
+# A failed run of this workflow is the alert: GitHub emails the repository owner when a scheduled
+# workflow fails, which is the free notification channel ADR-0010's "path forward" was after.
+
+on:
+  schedule:
+    # Daily, after both the 05:00 dbt cron and the 06:00 reconcile trigger have had time to
+    # finish, so a healthy night is never reported as stale.
+    - cron: "30 6 * * *"
+    # Monthly keepalive - see the `keepalive` job for why this exists.
+    - cron: "0 7 1 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check pipeline liveness
+    # Skip on the monthly keepalive tick; the daily cron already covers that day.
+    if: github.event.schedule != '0 7 1 * *'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Same account as dbt/profiles.yml's azure target. Hardcoded there and in reconcile.yml
+      # too - one deployment, no per-environment indirection to justify yet.
+      STORAGE_ACCOUNT: stmonzodedsghvv
+      # reconcile runs 6-hourly, so 24h tolerates three consecutive misses plus GitHub's
+      # scheduler drift before calling it dead.
+      RECONCILE_MAX_AGE_HOURS: 24
+      # dbt publishes nightly at minimum (cron), and per-transaction via Event Grid. 48h means
+      # two consecutive nightly runs would have to fail before this fires.
+      MARTS_MAX_AGE_HOURS: 48
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check ingestion and transform liveness
+        run: |
+          # No `set -e`: both checks should run and report, so a dead reconcile job doesn't hide
+          # a separately-broken dbt publish.
+          set -uo pipefail
+          failures=0
+
+          fail() { echo "::error::$1"; failures=$((failures + 1)); }
+          age_hours() { echo $(( ( $(date -u +%s) - $(date -u -d "$1" +%s) ) / 3600 )); }
+
+          # --- Ingestion: did reconciliation actually run? ------------------------------------
+          # A heartbeat, not a max(created_at) freshness check, specifically so a quiet week of
+          # spending isn't indistinguishable from a revoked token. See shared/heartbeat.py.
+          exists=$(az storage blob exists \
+            --account-name "$STORAGE_ACCOUNT" --container-name ops \
+            --name reconcile-heartbeat.json --auth-mode login \
+            --query exists -o tsv --only-show-errors)
+
+          if [ "$exists" != "true" ]; then
+            fail "No reconciliation heartbeat in ops/. Expected within 6h of the reconcile workflow first running against a Function App that includes shared/heartbeat.py."
+          else
+            az storage blob download \
+              --account-name "$STORAGE_ACCOUNT" --container-name ops \
+              --name reconcile-heartbeat.json --auth-mode login \
+              --file heartbeat.json --no-progress --only-show-errors > /dev/null
+
+            last_run_at=$(jq -r .last_run_at heartbeat.json)
+            written=$(jq -r .transactions_written heartbeat.json)
+            hours=$(age_hours "$last_run_at")
+
+            if [ "$hours" -gt "$RECONCILE_MAX_AGE_HOURS" ]; then
+              fail "Reconciliation last succeeded ${hours}h ago (limit ${RECONCILE_MAX_AGE_HOURS}h, runs 6-hourly). Most likely an expired Monzo refresh token - recovery needs scripts/monzo_oauth.py. Check the Reconcile workflow's recent runs first."
+            else
+              echo "OK: reconciliation succeeded ${hours}h ago, writing ${written} transactions."
+            fi
+          fi
+
+          # --- Transform: is dbt still publishing? -------------------------------------------
+          # Blob last-modified, not row counts: this asks "did the pipeline run", and an
+          # unchanged mart with a recent timestamp is a healthy quiet period, not a failure.
+          last_modified=$(az storage blob show \
+            --account-name "$STORAGE_ACCOUNT" --container-name marts \
+            --name monthly_cashflow.parquet --auth-mode login \
+            --query properties.lastModified -o tsv --only-show-errors)
+
+          if [ -z "$last_modified" ]; then
+            fail "Could not read marts/monthly_cashflow.parquet - the dbt publish job may never have succeeded."
+          else
+            hours=$(age_hours "$last_modified")
+            if [ "$hours" -gt "$MARTS_MAX_AGE_HOURS" ]; then
+              fail "marts/monthly_cashflow.parquet last written ${hours}h ago (limit ${MARTS_MAX_AGE_HOURS}h, published nightly). Check the dbt workflow's recent runs."
+            else
+              echo "OK: marts last published ${hours}h ago."
+            fi
+          fi
+
+          if [ "$failures" -gt 0 ]; then
+            echo "$failures health check(s) failed."
+            exit 1
+          fi
+          echo "All pipeline health checks passed."
+
+  keepalive:
+    name: Keep scheduled workflows enabled
+    # GitHub disables ALL scheduled workflows in a repository after 60 days with no repository
+    # activity. That would silently stop reconcile.yml, dbt.yml and this health check itself -
+    # the one failure mode a scheduled checker cannot detect, because nothing runs and so
+    # nothing fails. Scheduled runs don't reset that timer; a commit does.
+    #
+    # .github/last-active is matched by no other workflow's `paths:` filter (deploy.yml watches
+    # terraform/functions, dbt.yml watches dbt/, tests.yml watches mcp_server/), so this commit
+    # deploys nothing, rebuilds nothing and runs no tests.
+    if: github.event.schedule == '0 7 1 * *'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Commit activity marker
+        run: |
+          set -euo pipefail
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-active
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-active
+          git commit -m "chore: keepalive so scheduled workflows aren't disabled for inactivity"
+          git push

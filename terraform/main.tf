@@ -80,6 +80,28 @@ resource "azurerm_storage_blob" "monzo_refresh_lock" {
   source_content       = ""
 }
 
+# Operational signals, not pipeline data - currently just the reconciliation heartbeat that
+# functions/shared/heartbeat.py overwrites after every successful run (docs/decisions/0017).
+# Deliberately a separate container from raw/: the Event Grid subscription below is
+# subject-filtered to raw/, so a heartbeat written there would dispatch a full dbt run every
+# 6 hours for no reason. Kept out of the `layers` for_each for the same reason - it isn't a
+# medallion layer and shouldn't inherit the dbt identity's data-layer RBAC.
+resource "azurerm_storage_container" "ops" {
+  name                  = "ops"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
+# .github/workflows/pipeline_health.yml reads the heartbeat to decide whether ingestion is alive.
+# Read-only and container-scoped, matching the least-privilege pattern used for raw/ below. The
+# Function App writes it under the account-scoped Blob Data Owner grant its own module makes, so
+# no extra write grant is needed here.
+resource "azurerm_role_assignment" "github_actions_ops_reader" {
+  scope                = azurerm_storage_container.ops.id
+  role_definition_name = "Storage Blob Data Reader"
+  principal_id         = module.github_oidc.principal_id
+}
+
 
 # Data-plane access to the main storage account requires an explicit RBAC grant even for the
 # subscription owner - Contributor at the resource group scope only covers control-plane
