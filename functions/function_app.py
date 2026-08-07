@@ -1,16 +1,24 @@
 import json
+import logging
 
 import azure.functions as func
 
 from shared.blob_writer import write_transaction
 from shared.event_grid import validation_response
 from shared.github_dispatch import trigger_dbt_pipeline
+from shared.heartbeat import record_reconcile_run
 from shared.monzo_auth import get_access_token
 from shared.path_secret import check_path_secret
 from shared.payload_validation import validate_webhook_request
 from shared.transactions import fetch_recent_transactions
 
 app = func.FunctionApp()
+
+# Logging here answers "did this run, and what did it do" - the question every entry in the
+# README's debugging story needed answered and had to be inferred from App Insights request
+# telemetry instead. Deliberately counts and identifiers only: this handles real personal
+# financial data, and amounts, merchants and descriptions must not be copied into a second
+# store with a different retention and access model just to make debugging convenient.
 
 
 # Writes directly, no queue in between - see docs/decisions/0016. A Storage Queue buffer
@@ -24,10 +32,14 @@ app = func.FunctionApp()
 def webhook(req: func.HttpRequest) -> func.HttpResponse:
     error = validate_webhook_request(req)
     if error:
+        # Includes the rejected path secret's validity by implication, so log the reason only -
+        # never the request URL, which carries the secret itself.
+        logging.warning("Webhook request rejected: %s", error)
         return func.HttpResponse(error, status_code=400)
 
     event = json.loads(req.get_body().decode())
     write_transaction(event["data"], source="webhook")
+    logging.info("Webhook accepted transaction %s", event["data"]["id"])
     return func.HttpResponse(status_code=200)
 
 
@@ -40,12 +52,22 @@ def webhook(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="reconcile/{path_secret}", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
 def reconcile(req: func.HttpRequest) -> func.HttpResponse:
     if not check_path_secret(req, "reconcile-trigger-secret"):
+        logging.warning("Reconcile request rejected: bad path secret")
         return func.HttpResponse("Not found", status_code=400)
 
     access_token = get_access_token()
+
+    written = 0
     for transaction in fetch_recent_transactions(access_token):
         write_transaction(transaction, source="reconciliation")
+        written += 1
 
+    # Deliberately after the loop, not before: anything that raises above (expired refresh token,
+    # Monzo outage, storage failure) must leave the previous heartbeat untouched so it goes stale
+    # and the scheduled health check notices. Recording a run that didn't finish would turn the
+    # one signal that detects a dead pipeline into a signal that always says "alive".
+    record_reconcile_run(written)
+    logging.info("Reconciliation complete: %d transactions written to raw/", written)
     return func.HttpResponse(status_code=200)
 
 
@@ -60,12 +82,17 @@ def reconcile(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="on_raw_data_created/{path_secret}", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
 def on_raw_data_created(req: func.HttpRequest) -> func.HttpResponse:
     if not check_path_secret(req, "event-grid-trigger-secret"):
+        logging.warning("Event Grid request rejected: bad path secret")
         return func.HttpResponse("Not found", status_code=400)
 
     events = req.get_json()
     validation = validation_response(events)
     if validation is not None:
+        # Happens exactly once per subscription, at creation - worth a log line, because a
+        # subscription stuck unvalidated is otherwise silent and delivers nothing (ADR-0015).
+        logging.info("Answered Event Grid subscription validation handshake")
         return func.HttpResponse(json.dumps(validation), status_code=200, mimetype="application/json")
 
     trigger_dbt_pipeline()
+    logging.info("Dispatched dbt pipeline for %d raw/ blob event(s)", len(events))
     return func.HttpResponse(status_code=200)

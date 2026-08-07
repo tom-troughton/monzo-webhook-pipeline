@@ -114,8 +114,9 @@ for the reasoning already applied to the Function App hosting plan.
   `azure` reads the real `raw/` container via the DuckDB `azure` extension with `credential_chain`
   auth — no stored secret, resolves through `az login` locally. **`raw/`/`staging/`/`marts/` hold
   real transaction data now, not synthetic** — `scripts/backfill_transactions.py` (manual/local
-  only, mirrors `functions/shared/transactions.py`'s pagination but pulls full history, not just
-  24h) pulled real transactions via the Monzo API and wrote them with the same
+  only, now *sharing* `functions/shared/transactions.py`'s pagination rather than reimplementing
+  it — see the pagination bullet below — and adding only the year-long windowing full history
+  needs) pulled real transactions via the Monzo API and wrote them with the same
   `write_transaction()` the reconciliation Function will eventually use, after the earlier
   synthetic blobs were deleted (`az storage blob delete-batch`). Now holds the account's full
   history back to account opening (2019) - 4,988 transactions, not the ~1 month it initially got.
@@ -245,6 +246,71 @@ for the reasoning already applied to the Function App hosting plan.
   in CI exactly like it does locally. No `dbt docs generate` step — it produced a docs site nobody
   could reach (no hosting), so it was dropped rather than generating an artifact nobody downloads;
   revisit once dbt docs hosting is actually built.
+- **Monzo pagination lives in exactly one place now** (`functions/shared/transactions.py`'s
+  `fetch_account_transactions`), shared by the reconciliation Function and
+  `scripts/backfill_transactions.py`. It previously existed twice and **only the backfill script's
+  copy was correct** — the Function issued a single unpaginated `/transactions` request, silently
+  capping reconciliation at Monzo's default 100 results per account per run. Invisible at personal
+  volume (a 24h window is well under 100), but silent truncation in the component ADR-0001 makes
+  authoritative is the worst possible place for it, and the failure mode was catch-up runs after
+  missed ticks. **Monzo returns no "more results" flag**, so the only safe stop condition is a
+  short page; `since` doubles as the cursor when passed a transaction ID instead of a timestamp.
+- **`raw/` enforces ADR-0001's precedence at write time now, not just in a comment.** One blob per
+  `transaction_id` means `raw/` is last-writer-wins, so dbt's `order by (source = 'reconciliation')
+  desc` tie-break in `stg_transactions` *can never fire* — two rows for one ID would need two
+  blobs. That left a real hole: a retried webhook delivery landing after reconciliation had written
+  the same transaction would silently replace the authoritative record with the notification one.
+  `blob_writer.write_transaction()` now checks blob **metadata** (a HEAD, not a download — this is
+  the webhook's hot path) and skips a webhook write when a `reconciliation` copy already exists.
+  Backfilled blobs predate the metadata and read as `None`/overwritable; they're old transactions
+  that will never receive a webhook, so it can't arise for them.
+- **Blob soft delete (14 days) on the storage account**, plus container soft delete. `raw/` is the
+  only unreproducible thing here — re-fetching it needs *interactive* Monzo re-auth plus year-long
+  windows — and `az storage blob delete-batch` has already been run against it once. **Versioning
+  is deliberately NOT enabled:** versions persist until a lifecycle policy prunes them and dbt
+  rewrites `staging/`/`marts/` every run, so that grows unbounded; soft delete expires
+  automatically, bounding cost by retention window rather than run count (pennies/month at
+  single-digit-MB rewrites).
+- **Every unattended outbound HTTP call sets a timeout** (`shared/transactions.py`,
+  `monzo_auth.py`, `github_dispatch.py`). A hung call previously ran until the Functions host
+  killed it; inside `get_access_token()` it did so *while holding the refresh blob lease*,
+  blocking every other caller until the 60s lease expired. Manual `scripts/` calls are
+  deliberately left alone — a human is watching those.
+- **Route-level logging** in `function_app.py` (counts, transaction IDs, rejection reasons).
+  Deliberately **no amounts, merchants or descriptions**: this is real personal financial data and
+  App Insights is a second store with different retention and access. Also never the request URL,
+  which carries the path secret.
+- `.github/workflows/tests.yml` — pytest for `functions/` and `mcp_server/` (Python 3.12, matching
+  the Function App's `runtime_version`). Declared `workflow_call`-able and invoked by `deploy.yml`
+  as a `test` job that `deploy-functions` **needs**, so Function code can't reach Azure without the
+  suite passing. Reused rather than copied specifically so the deploy gate and the PR check can't
+  drift. **Its own `push`/`pull_request` path filters deliberately omit `functions/**`** — `deploy.yml`
+  already triggers on that path and calls this workflow, so listing it here too would run every
+  suite twice and put four near-identical checks on a functions PR.
+- **Dependencies are patch-level pinned (`~=X.Y.Z`) in all four requirements files** —
+  `functions/`, `dbt/`, `mcp_server/`, and the root (`scripts/`). Unattended crons are the wrong
+  place to discover a breaking release: dbt-core minor bumps have changed test-definition syntax
+  (this project already uses the newer `arguments:` form), the models depend on specific DuckDB
+  behaviours documented in `dbt/macros/incremental_scoping.sql`, and the MCP SDK's
+  `FastMCP` → `MCPServer` rename already broke `mcp_server/` once. `duckdb` is pinned explicitly in
+  `dbt/requirements.txt` rather than left to dbt-duckdb's resolver. `.github/dependabot.yml`
+  (monthly, dbt packages grouped since core/adapter are version-coupled) is the other half of the
+  trade — pinning without it just means never updating.
+- **Dead-pipeline detection** ([ADR-0017](docs/decisions/0017-reconciliation-heartbeat-blob.md)),
+  closing the gap [ADR-0010](docs/decisions/0010-reconciliation-heartbeat-alert.md) left open after
+  rejecting the paid Azure Monitor rule. `reconcile` writes `ops/reconcile-heartbeat.json`
+  (`functions/shared/heartbeat.py`) **after** its write loop, so a run that raises leaves the old
+  heartbeat to go stale. `.github/workflows/pipeline_health.yml` runs daily and fails — which emails
+  the repo owner — if the heartbeat is >24h old or `marts/monthly_cashflow.parquet` is >48h old.
+  **Why a heartbeat and not a `max(created_at)` freshness test:** on a personal account, "no
+  spending this week" and "the refresh token was revoked" are the same observation; only a signal
+  the ingestion path emits itself distinguishes them. **Why a separate `ops` container:** the Event
+  Grid subscription is subject-filtered to `raw/`, so a heartbeat written there would dispatch a
+  full dbt run every 6 hours. The same workflow carries a **monthly keepalive** committing to
+  `.github/last-active` — GitHub disables *all* scheduled workflows after 60 days of repository
+  inactivity, which would stop `reconcile.yml`, `dbt.yml` and the health check together, and is the
+  one failure mode a scheduled checker can't self-detect. That path matches no other workflow's
+  `paths:` filter, so the commit deploys/rebuilds/tests nothing.
 - `mcp_server/` — the 5 tools the spec's MCP section names (`get_spend_by_category`,
   `get_monthly_cashflow`, `get_top_merchants`, `get_subscriptions`, `get_data_quality_report`),
   built on the `mcp` SDK's `MCPServer` (the current SDK major version renamed `FastMCP` to this -
@@ -260,11 +326,12 @@ for the reasoning already applied to the Function App hosting plan.
   `transaction_id` check, decline count) rather than depending on stored dbt test results, since
   the freshness/reconciliation dbt tests the spec's Data Quality section wants aren't built yet.
   Its `hours_since_last_transaction` field is a "how recent is the data" proxy, not "how recently
-  did ingestion last run" - there's no ingestion-run signal to report since the webhook/
-  reconciliation Function isn't deployed. Runs locally/on-demand via `python -m mcp_server.server`
-  (stdio transport) per the spec's "not a hosted service" intent - launch it from an MCP client
-  config, same as any other local MCP server. Not wired into CI (no test-running workflow exists
-  for `functions/` either - pytest is run manually for both right now).
+  did ingestion last run". That ingestion-run signal now exists - the reconciliation heartbeat in
+  `ops/` ([ADR-0017](docs/decisions/0017-reconciliation-heartbeat-blob.md)) - but this tool doesn't
+  read it yet; wiring it in is deferred, not blocked. Runs locally/on-demand via
+  `python -m mcp_server.server` (stdio transport) per the spec's "not a hosted service" intent -
+  launch it from an MCP client config, same as any other local MCP server. Tests run in CI now
+  (`.github/workflows/tests.yml`), alongside `functions/`'s.
 
 **Resolved (was "Partially applied"):** the `Y1` Consumption plan's App Service quota is still stuck
 at 0 subscription-wide (Azure's Capacity Management team responded to the quota-increase request

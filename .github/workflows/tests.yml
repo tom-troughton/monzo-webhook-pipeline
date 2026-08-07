@@ -1,0 +1,67 @@
+name: Tests
+
+# Deliberately NOT triggered directly on `functions/**`, even though it tests it: deploy.yml
+# already triggers on that path and calls this workflow as a gate (see `workflow_call` below),
+# so listing it here too would run every suite twice and put four near-identical checks on a
+# functions PR. The paths below are the ones deploy.yml doesn't already cover.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "mcp_server/**"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "mcp_server/**"
+      - ".github/workflows/tests.yml"
+  # Called as a hard gate by deploy.yml before any Function code is published (see its `test`
+  # job). Declared callable here rather than copying the pytest steps into deploy.yml, so the
+  # deploy gate and the PR check can't drift out of sync.
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  functions:
+    name: pytest (functions)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+
+      # Matches the Function App's runtime_version in terraform/modules/function_app/main.tf -
+      # testing on a different minor than the one that actually runs the code defeats the point.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: functions/requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      # Run from functions/ so `from shared...` imports resolve the same way they do in the
+      # deployed app - functions/conftest.py is what puts this directory on sys.path.
+      - run: pytest tests -q
+
+  mcp-server:
+    name: pytest (mcp_server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mcp_server/requirements-dev.txt
+
+      - run: pip install -r mcp_server/requirements-dev.txt
+
+      # Run from the repo root, not mcp_server/ - the tests import `mcp_server.tools` as a
+      # package. Tests use an in-memory DuckDB with fixture data, so no Azure auth is needed.
+      - run: pytest mcp_server/tests -q

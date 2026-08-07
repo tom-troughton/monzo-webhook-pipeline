@@ -1,7 +1,8 @@
 """One-off backfill: pulls full transaction history from the Monzo API and writes it to raw/,
-using the same write_transaction() the reconciliation Function will eventually use. Manual/local
-only, not invoked by CI - see functions/shared/transactions.py for the Function's own
-(24h-lookback) equivalent, which this doesn't replace.
+using the same write_transaction() the reconciliation Function uses. Manual/local only, not
+invoked by CI - see functions/shared/transactions.py for the Function's own (24h-lookback)
+equivalent, which this doesn't replace. Page-following is shared with that module rather than
+duplicated here; only the year-long windowing below is specific to backfilling.
 
 Two separate Monzo API constraints, easy to conflate:
 1. A single /transactions call can't span more than 365 days (`since`..`before`), or it 400s with
@@ -17,38 +18,13 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import requests
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "functions"))
 
 from shared.blob_writer import write_transaction
 from shared.monzo_auth import get_access_token
+from shared.transactions import fetch_account_transactions, fetch_accounts
 
-PAGE_SIZE = 100
 MAX_WINDOW_DAYS = 365
-
-
-def fetch_window(headers: dict, account_id: str, window_since: str, window_before: str) -> list[dict]:
-    transactions = []
-    since = window_since
-    while True:
-        params = {
-            "account_id": account_id,
-            "expand[]": "merchant",
-            "limit": PAGE_SIZE,
-            "since": since,
-            "before": window_before,
-        }
-        response = requests.get("https://api.monzo.com/transactions", headers=headers, params=params)
-        response.raise_for_status()
-        page = response.json()["transactions"]
-        if not page:
-            break
-        transactions.extend(page)
-        since = page[-1]["id"]  # `since` accepts a transaction ID as a pagination cursor too.
-        if len(page) < PAGE_SIZE:
-            break
-    return transactions
 
 
 def fetch_all_transactions(headers: dict, account_id: str, account_created: str) -> list[dict]:
@@ -57,8 +33,10 @@ def fetch_all_transactions(headers: dict, account_id: str, account_created: str)
     now = datetime.now(timezone.utc)
     while window_start < now:
         window_end = min(window_start + timedelta(days=MAX_WINDOW_DAYS), now)
-        transactions.extend(fetch_window(
-            headers, account_id, window_start.isoformat(), window_end.isoformat()
+        # Paginated page-following lives in shared/transactions.py, shared with the reconciliation
+        # Function - this script only adds the year-long windowing that constraint 1 above forces.
+        transactions.extend(fetch_account_transactions(
+            headers, account_id, window_start.isoformat(), before=window_end.isoformat()
         ))
         window_start = window_end
     return transactions
@@ -67,11 +45,8 @@ def fetch_all_transactions(headers: dict, account_id: str, account_created: str)
 def main():
     headers = {"Authorization": f"Bearer {get_access_token()}"}
 
-    accounts_response = requests.get("https://api.monzo.com/accounts", headers=headers)
-    accounts_response.raise_for_status()
-
     total = 0
-    for account in accounts_response.json()["accounts"]:
+    for account in fetch_accounts(headers):
         transactions = fetch_all_transactions(headers, account["id"], account["created"])
         for transaction in transactions:
             write_transaction(transaction, source="reconciliation")

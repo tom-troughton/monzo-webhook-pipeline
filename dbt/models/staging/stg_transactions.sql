@@ -7,6 +7,14 @@
 -- published staging/ output: correctness doesn't depend on any local state surviving between
 -- runs, since "old" data comes from durable Blob Storage and only "new" data comes from raw/.
 --
+-- Gotcha when editing this model: the `existing` CTE below selects explicit column names out of
+-- staging/'s already-published Parquet. Adding or renaming a column above therefore breaks the
+-- union until staging/ has been rewritten with the new shape - union_by_name only reconciles
+-- columns that exist in at least one file being read, so a brand-new column binds against
+-- nothing and errors. Any column change here needs a one-off `dbt build --target azure
+-- --full-refresh` (which skips the union entirely - see incremental_scan_from()) to republish
+-- staging/, after which normal incremental runs work again.
+--
 -- Reconciliation is the source of truth over webhook deliveries (docs/decisions/0001) - within a
 -- single raw/ read that only matters if the same transaction_id somehow appears twice (shouldn't
 -- happen given raw/'s one-blob-per-id naming, kept as a defensive tie-break). Between the new

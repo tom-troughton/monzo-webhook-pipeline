@@ -26,6 +26,28 @@ resource "azurerm_storage_account" "main" {
   min_tls_version                 = "TLS1_2"
   allow_nested_items_to_be_public = false
 
+  # raw/ is the only thing here that can't be rebuilt from something else. staging/ and marts/ are
+  # reproducible with `dbt build --full-refresh`, but re-fetching raw/ from the Monzo API needs an
+  # *interactive* re-authorisation (403 forbidden.verification_required otherwise - a refresh-token
+  # grant doesn't satisfy it) plus a walk in year-long windows, because a single /transactions call
+  # can't span more than 365 days. That's a bad position to be in after a fat-fingered
+  # `az storage blob delete-batch` - a command this project has already run against raw/ once, to
+  # clear the synthetic fixtures before the real backfill.
+  #
+  # Soft delete, deliberately NOT versioning: versioning retains every version indefinitely until a
+  # lifecycle policy prunes them, and dbt rewrites staging/ and marts/ on every run - that grows without
+  # bound. Soft delete expires automatically at `days`, so cost is bounded by retention window
+  # rather than by run count. Overwrites also generate soft-deleted snapshots, so this window is
+  # what keeps dbt's rewrite churn to pennies a month at this data volume (single-digit MB per run).
+  blob_properties {
+    delete_retention_policy {
+      days = 14
+    }
+    container_delete_retention_policy {
+      days = 14
+    }
+  }
+
   tags = {
     project     = var.project_name
     environment = var.environment
@@ -56,6 +78,28 @@ resource "azurerm_storage_blob" "monzo_refresh_lock" {
   storage_container_id = azurerm_storage_container.locks.id
   type                 = "Block"
   source_content       = ""
+}
+
+# Operational signals, not pipeline data - currently just the reconciliation heartbeat that
+# functions/shared/heartbeat.py overwrites after every successful run (docs/decisions/0017).
+# Deliberately a separate container from raw/: the Event Grid subscription below is
+# subject-filtered to raw/, so a heartbeat written there would dispatch a full dbt run every
+# 6 hours for no reason. Kept out of the `layers` for_each for the same reason - it isn't a
+# medallion layer and shouldn't inherit the dbt identity's data-layer RBAC.
+resource "azurerm_storage_container" "ops" {
+  name                  = "ops"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
+# .github/workflows/pipeline_health.yml reads the heartbeat to decide whether ingestion is alive.
+# Read-only and container-scoped, matching the least-privilege pattern used for raw/ below. The
+# Function App writes it under the account-scoped Blob Data Owner grant its own module makes, so
+# no extra write grant is needed here.
+resource "azurerm_role_assignment" "github_actions_ops_reader" {
+  scope                = azurerm_storage_container.ops.id
+  role_definition_name = "Storage Blob Data Reader"
+  principal_id         = module.github_oidc.principal_id
 }
 
 

@@ -8,6 +8,10 @@ import requests
 
 from .kv import get_secret
 
+# Event Grid retries a non-2xx delivery, so failing fast on a hung GitHub API call is strictly
+# better than holding the Function open until the host kills it.
+DISPATCH_TIMEOUT_SECONDS = 30
+
 
 def trigger_dbt_pipeline() -> None:
     owner = os.environ["GITHUB_REPO_OWNER"]
@@ -20,5 +24,6 @@ def trigger_dbt_pipeline() -> None:
             "Accept": "application/vnd.github+json",
         },
         json={"event_type": "raw-data-updated"},
+        timeout=DISPATCH_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
