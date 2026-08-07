@@ -21,6 +21,14 @@ monzo_finance:
       # curl everywhere breaks it the other way on Windows (no default CA bundle for curl to find),
       # so this is env-driven: unset locally (default transport), DBT_AZURE_TRANSPORT=curl in CI.
       settings:
+        # DuckDB's own worker count (NOT the `threads:` above, which is dbt's model concurrency).
+        # It defaults to the core count, which is the right default for CPU-bound work and the
+        # wrong one here: this target reads ~200 small blobs per run over HTTPS, so the workers
+        # spend their time blocked on network round-trips rather than computing. Pinning it
+        # deliberately exceeds CI's core count - GitHub Actions runners are 2-4 vCPU, and at that
+        # default stg_transactions took 89.7s in CI vs 30.6s locally on a 16-core box. Measured on
+        # the same query and data: threads=2 -> 123.1s, threads=16 -> 30.6s.
+        threads: 16
         azure_transport_option_type: "{{ env_var('DBT_AZURE_TRANSPORT', 'default') }}"
       secrets:
         - type: azure
