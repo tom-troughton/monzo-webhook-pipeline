@@ -26,6 +26,28 @@ resource "azurerm_storage_account" "main" {
   min_tls_version                 = "TLS1_2"
   allow_nested_items_to_be_public = false
 
+  # raw/ is the only thing here that can't be rebuilt from something else. staging/ and marts/ are
+  # reproducible with `dbt build --full-refresh`, but re-fetching raw/ from the Monzo API needs an
+  # *interactive* re-authorisation (403 forbidden.verification_required otherwise - a refresh-token
+  # grant doesn't satisfy it) plus a walk in year-long windows, because a single /transactions call
+  # can't span more than 365 days. That's a bad position to be in after a fat-fingered
+  # `az storage blob delete-batch` - a command this project has already run against raw/ once, to
+  # clear the synthetic fixtures before the real backfill.
+  #
+  # Soft delete, deliberately NOT versioning: versioning retains every version indefinitely until a
+  # lifecycle policy prunes them, and dbt rewrites staging/ and marts/ on every run - that grows without
+  # bound. Soft delete expires automatically at `days`, so cost is bounded by retention window
+  # rather than by run count. Overwrites also generate soft-deleted snapshots, so this window is
+  # what keeps dbt's rewrite churn to pennies a month at this data volume (single-digit MB per run).
+  blob_properties {
+    delete_retention_policy {
+      days = 14
+    }
+    container_delete_retention_policy {
+      days = 14
+    }
+  }
+
   tags = {
     project     = var.project_name
     environment = var.environment
