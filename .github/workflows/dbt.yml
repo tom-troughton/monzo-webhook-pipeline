@@ -10,6 +10,9 @@ on:
     branches: [master]
     paths:
       - "dbt/**"
+      # So a change to this workflow itself (an action bump, say) is validated before merge
+      # rather than first running on master - see the equivalent note in deploy.yml.
+      - ".github/workflows/dbt.yml"
   schedule:
     # Reliability fallback per the spec's CI/CD section, in case the Event Grid path (below) ever
     # misses an event. Incremental - scoped to recent raw/ data only, see

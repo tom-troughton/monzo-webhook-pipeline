@@ -16,7 +16,12 @@ on:
     - cron: "30 6 * * *"
     # Monthly keepalive - see the `keepalive` job for why this exists.
     - cron: "0 7 1 * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      run_keepalive:
+        description: "Also run the keepalive commit (normally the monthly cron only)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -117,9 +122,16 @@ jobs:
     # nothing fails. Scheduled runs don't reset that timer; a commit does.
     #
     # .github/last-active is matched by no other workflow's `paths:` filter (deploy.yml watches
-    # terraform/functions, dbt.yml watches dbt/, tests.yml watches mcp_server/), so this commit
-    # deploys nothing, rebuilds nothing and runs no tests.
-    if: github.event.schedule == '0 7 1 * *'
+    # terraform/functions and its own workflow files, dbt.yml watches dbt/ and its own, tests.yml
+    # watches mcp_server/ and its own), so this commit deploys nothing, rebuilds nothing and runs
+    # no tests.
+    #
+    # The run_keepalive input exists so this is testable on demand. Gated to the monthly cron
+    # alone, the one mechanism protecting every other scheduled workflow could not be exercised
+    # until it first fired for real - and it needs `contents: write`, which this repository's
+    # default GITHUB_TOKEN permission (read) does not grant by default, so "does it actually
+    # push?" is a question worth being able to answer deliberately rather than discovering.
+    if: github.event.schedule == '0 7 1 * *' || inputs.run_keepalive
     runs-on: ubuntu-latest
     permissions:
       contents: write

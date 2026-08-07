@@ -12,6 +12,12 @@ on:
     paths:
       - "terraform/**"
       - "functions/**"
+      # Without these, a PR that only edits a workflow file runs no checks at all - which is how
+      # Dependabot's azure/login v2->v3 and setup-terraform v3->v4 bumps arrived with zero
+      # validation, to be exercised for the first time after merge, on master, during a real
+      # apply. tests.yml is listed because this workflow calls it as the deploy gate.
+      - ".github/workflows/deploy.yml"
+      - ".github/workflows/tests.yml"
   workflow_dispatch: {}
 
 permissions:
