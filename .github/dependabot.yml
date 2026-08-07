@@ -9,36 +9,34 @@
 version: 2
 
 updates:
-  - package-ecosystem: pip
-    directory: /functions
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 3
-
-  - package-ecosystem: pip
-    directory: /dbt
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 3
-    groups:
-      # dbt-core and dbt-duckdb are version-coupled - an adapter bump that lands separately from
-      # its matching core bump just produces a PR that can't pass CI on its own.
-      dbt:
-        patterns:
-          - "dbt-*"
-          - "duckdb"
-
-  - package-ecosystem: pip
-    directory: /mcp_server
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 3
-
+  # ONE pip entry, not one per requirements file. Dependabot's pip updater discovers requirements
+  # files recursively below `directory`, so `/` already covers functions/, dbt/, mcp_server/ and
+  # the root. An earlier version of this file also listed those three explicitly, which produced
+  # two identical PRs for the same bump to the same file (#3 and #6) - one from the directory
+  # entry, one from the recursive root scan.
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 3
+    # Higher than the per-directory limit that preceded it, since this one entry now covers all
+    # four requirements files rather than one.
+    open-pull-requests-limit: 5
+    groups:
+      # dbt-core and dbt-duckdb are version-coupled - an adapter bump that lands separately from
+      # its matching core bump just produces a PR that can't pass CI on its own. duckdb rides
+      # along because the dbt models depend on specific DuckDB behaviours (see
+      # dbt/macros/incremental_scoping.sql) and mcp_server reads the same Parquet files.
+      dbt:
+        patterns:
+          - "dbt-*"
+          - "duckdb"
+    ignore:
+      # azure-functions 2.x requires Python >= 3.13; this Function App runs 3.12
+      # (runtime_version in terraform/modules/function_app/main.tf, mirrored by the Python
+      # version in .github/workflows/tests.yml). Taking 2.x is a Function App runtime decision,
+      # not a dependency bump, so don't re-propose it every month until that decision is made.
+      - dependency-name: azure-functions
+        versions: [">=2.0.0"]
 
   - package-ecosystem: github-actions
     directory: /
