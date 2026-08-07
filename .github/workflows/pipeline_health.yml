@@ -41,7 +41,7 @@ jobs:
       # two consecutive nightly runs would have to fail before this fires.
       MARTS_MAX_AGE_HOURS: 48
     steps:
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
