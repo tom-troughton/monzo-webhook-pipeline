@@ -3,7 +3,7 @@
 # silently broken reconcile run at 06:00, not as a test failure someone is watching. Patch
 # releases still flow through, so security fixes aren't frozen out; minor/major upgrades arrive
 # as reviewable Dependabot PRs instead (.github/dependabot.yml), which the test workflow gates.
-azure-functions~=1.24.0
+azure-functions~=2.2.0
 azure-identity~=1.25.3
 azure-keyvault-secrets~=4.11.0
 azure-storage-blob~=12.30.0
