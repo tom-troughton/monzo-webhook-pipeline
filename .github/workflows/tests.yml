@@ -36,7 +36,7 @@ jobs:
 
       # Matches the Function App's runtime_version in terraform/modules/function_app/main.tf -
       # testing on a different minor than the one that actually runs the code defeats the point.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
