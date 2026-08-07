@@ -18,7 +18,7 @@ def fetch_recent_transactions(access_token: str, lookback_hours: int = 24) -> li
         response = requests.get(
             "https://api.monzo.com/transactions",
             headers=headers,
-            params={"account_id": account["id"], "since": since},
+            params={"account_id": account["id"], "since": since, "expand[]": "merchant"},
         )
         response.raise_for_status()
         transactions.extend(response.json()["transactions"])
