@@ -87,8 +87,20 @@ resource "azurerm_function_app_flex_consumption" "main" {
   # this site_config attribute after every deploy; config here has no opinion on it, so Terraform
   # would otherwise "fix" it to null on every single apply - a real Function App update/restart
   # each time, for a value that's already correctly set via app_settings regardless.
+  #
+  # The app_settings entry is the mirror image of the same round-trip, and needs ignoring for the
+  # same reason. Once Azure surfaces the value on site_config, the provider stops reporting it in
+  # app_settings, so Terraform sees it as missing and plans to add it back - forever. It is a diff
+  # that applying cannot resolve: `terraform apply` succeeded, and the very next `terraform plan`
+  # proposed the identical change again. Confirmed not to be a real absence - `az functionapp
+  # config appsettings list` shows the setting present on the running app - so ignoring this keeps
+  # App Insights working while making plans honest. Without it every apply updates the Function
+  # App for nothing, which is exactly the churn the site_config ignore above was added to stop.
   lifecycle {
-    ignore_changes = [site_config[0].application_insights_connection_string]
+    ignore_changes = [
+      site_config[0].application_insights_connection_string,
+      app_settings["APPLICATIONINSIGHTS_CONNECTION_STRING"],
+    ]
   }
 }
 
