@@ -9,6 +9,13 @@
 -- result set alone, doesn't delete them). So scoping the SELECT to incremental_scan_from()'s
 -- window here has the same effect as scoped_raw_transactions_source() does for the read side:
 -- only the months that could plausibly have changed get rewritten, not all of them every run.
+--
+-- What that phrasing hides, and what made this silently lossy for a while: a partition that IS
+-- present in the result set gets rewritten from the result set *in full*. So the WHERE below must
+-- never cut a partition in half. It doesn't, because incremental_scan_from() returns a watermark
+-- snapped to the first of its month - but the correctness of this filter lives there, not here.
+-- A day-granular watermark republishes the oldest touched month containing only the days after it
+-- and drops the rest of that month from staging/ (docs/decisions/0018).
 {{
     config(
         materialized='external',

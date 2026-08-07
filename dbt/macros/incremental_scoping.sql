@@ -22,12 +22,30 @@
   it - the weekly --full-refresh CI run (.github/workflows/dbt.yml) is the actual backstop that
   closes the gap regardless of margin size.
 
+  The returned watermark is snapped back to the first of its month, which is load-bearing rather
+  than cosmetic - see docs/decisions/0018-partition-aligned-incremental-window.md. staging/ is
+  Hive-partitioned by month and DuckDB's partitioned COPY rewrites a touched partition *in full*
+  from whatever the SELECT returns, so a day-granular watermark made export_staging_transactions
+  republish its oldest partition containing only the days after the watermark - silently dropping
+  the earlier days of that month from staging/. Month-aligning here means every partition the
+  export rewrites is rewritten complete, and it costs nothing on the read side because
+  scoped_raw_transactions_source() below already scans whole months anyway.
+
   DuckDB's read_json hard-errors if ANY path in a multi-glob list matches zero files, even when
   others in the same list match fine - candidate months are checked for existence via glob() and
   filtered out before ever being passed to read_json, not assumed to all have data.
 
   Falls back to a full unscoped scan whenever the scoped path can't be trusted: first run,
-  --full-refresh, no staging/ output yet, or (belt and suspenders) no matching months found at all.
+  --full-refresh, no staging/ output yet, or no matching months found at all.
+
+  That last case looks like a "no work to do" shortcut being answered with the most expensive
+  possible query, but it is genuinely the correct response and must not be optimised into an empty
+  read. staging/'s newest partition is *derived from* raw/, so the scan window always contains at
+  least one raw blob by construction - zero matches means raw/ no longer agrees with staging/
+  (blobs deleted, container remounted, prefix renamed). In that state a scoped read would union an
+  empty new_read with an `existing` deliberately filtered to months *before* the window, quietly
+  dropping the window's months from the output entirely. The full scan rebuilds from raw/ instead,
+  which is both correct and self-correcting.
 #}
 
 {% macro raw_transaction_columns() %}
@@ -104,7 +122,12 @@
   {%- set latest_month_start = modules.datetime.datetime(year, month, 1) -%}
 
   {%- set margin_days = var('incremental_lookback_days', 30) -%}
-  {{ return(latest_month_start - modules.datetime.timedelta(days=margin_days)) }}
+  {%- set margin_start = latest_month_start - modules.datetime.timedelta(days=margin_days) -%}
+
+  {#- Snap to the first of the month (see the partition-alignment note in the header). This only
+      ever widens the window - the effective margin becomes "at least incremental_lookback_days,
+      rounded out to a whole month" - so it can't cause the scoping to miss anything. -#}
+  {{ return(margin_start.replace(day=1)) }}
 {% endmacro %}
 
 {#

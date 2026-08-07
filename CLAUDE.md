@@ -173,6 +173,27 @@ for the reasoning already applied to the Function App hosting plan.
   watermark as a `WHERE created_at >=` filter, so DuckDB's partitioned `COPY` only rewrites
   partitions that could plausibly have changed (confirmed empirically: it leaves partitions outside
   the current result set untouched, doesn't delete them).
+  **The watermark is snapped to the first of its month, and that is load-bearing** — see
+  [ADR-0018](docs/decisions/0018-partition-aligned-incremental-window.md). A partition present in
+  the `COPY`'s result set is rewritten *in full from that result set*, so a day-granular watermark
+  republished the oldest touched month containing only the days after it and silently dropped the
+  rest of that month from `staging/`. This was live: `raw/2026/07/01/` held 7 blobs while the
+  published July partition began at 07-02 (`stg_transactions` 4,993 rows vs `staging/` 4,986). It
+  hid well because `stg_transactions` re-reads the whole month from `raw/` anyway, so the table and
+  every mart stayed correct — only the published `staging/` artifact (what `mcp_server`'s `staging`
+  view and `get_data_quality_report` read) had the hole, and the weekly `--full-refresh` kept
+  healing it before it looked like corruption. **The rule: the export's filter must align to the
+  partition key, not to the watermark.** It works because `raw/` is pathed `%Y/%m/%d` by
+  `created` and `staging/` is partitioned by `created_at`'s month — the same granularity, which has
+  to stay in step. `stg_transactions`' `existing` branch relies on it too: it's filtered by
+  partition predicate (`transaction_year::int * 100 + transaction_month::int < <watermark month>`)
+  rather than anti-joined against the new read. Equivalent (verified: same row and distinct-id
+  counts), but `not in` against a subquery is a NULL trap — one malformed `raw/` blob yields a NULL
+  `transaction_id`, the predicate goes UNKNOWN for every row, and the whole of history silently
+  drops out. **Gotcha:** Hive partition values come back inconsistently typed —
+  `transaction_year` autocasts to `BIGINT` but `transaction_month` stays `VARCHAR` (the leading
+  zero in `07` defeats inference) — hence explicit `::int` on both rather than string
+  concatenation.
   The margin (`incremental_lookback_days` var, default 30 days) is a bounded risk, not a precise
   cutoff — reconciliation can write backdated transactions to older `raw/` paths (that's its whole
   job per [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)), and a window
@@ -180,6 +201,22 @@ for the reasoning already applied to the Function App hosting plan.
   past them. `.github/workflows/dbt.yml` has a second weekly cron (`0 5 * * 0`) that runs
   `dbt build --target azure --full-refresh` as the actual backstop closing that gap regardless of
   margin size, distinguished from the nightly incremental cron via `github.event.schedule`.
+  **DuckDB's worker count is pinned (`settings: threads: 16` in the `azure` profile) and that's the
+  single biggest performance lever here — bigger than any SQL change.** DuckDB defaults it to the
+  core count, which is right for CPU-bound work and wrong for this target: a run reads ~200 small
+  blobs over HTTPS, so workers sit blocked on round-trips rather than computing, and the right
+  number deliberately *exceeds* the core count. GitHub Actions runners are 2-4 vCPU, so CI was
+  silently running the crippled configuration — `stg_transactions` took **89.7s in CI vs 30.6s
+  locally** on a 16-core box, for identical work (it was ~90% of the entire CI dbt run). Measured on
+  the same query and data: `threads=2` → 123.1s, `threads=16` → 30.6s. Note this is a different
+  knob from the profile's top-level `threads:`, which is dbt's *model* concurrency — easy to
+  conflate. Second lever, much smaller: the `staging/` read dropped `union_by_name=true` (20.3s →
+  14.3s for 85 partitions). All partitions come from one `COPY` with one schema, so there was
+  nothing to reconcile, and it never protected the add-a-column case anyway — that needs a
+  `--full-refresh` regardless. Per-blob HTTP latency is the whole cost here (~2MB of data across
+  ~216 files; one file ≈ 1.3s fixed handshake, each extra ≈ 140ms), which is also why partition
+  pruning on the `existing` branch buys ~nothing (it skips 2 of 85 files) and is there for
+  correctness, not speed.
   **Gotcha:** `run_query()`'s result isn't safe to use during dbt's parse-only introspection pass
   (which every invocation does, to extract `ref()`/`source()` dependencies, before any real
   connection exists) — calling `.columns[...]` on it there throws an opaque `'None' has no

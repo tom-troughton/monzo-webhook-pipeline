@@ -73,4 +73,8 @@ models:
       `incremental`, so this always rewrites whatever its SELECT returns - but the SELECT itself
       is scoped to the same recent window as stg_transactions' own read (incremental_scan_from()),
       so in practice only the months that could plausibly have changed get rewritten. DuckDB's
-      partitioned COPY leaves partitions outside the current result set untouched, not deleted.
+      partitioned COPY leaves partitions outside the current result set untouched, not deleted -
+      but a partition that IS in the result set is rewritten from it in full, so the scoping filter
+      must never cut a partition in half. It doesn't, because incremental_scan_from() returns a
+      month-aligned watermark; see docs/decisions/0018-partition-aligned-incremental-window.md for
+      the data loss that happened when it wasn't.
