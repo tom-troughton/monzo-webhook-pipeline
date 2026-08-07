@@ -1,0 +1,47 @@
+# Pinning dependencies (see functions/requirements.txt) trades "breaks without warning" for
+# "never updates". This is the other half of that trade: upgrades arrive as PRs that the Tests
+# and dbt workflows gate, on a schedule, instead of arriving unannounced in the middle of an
+# unattended 05:00 cron run.
+#
+# Monthly, not weekly - this is a personal project with four small requirements files; weekly
+# would generate more PRs than anyone will triage, and unreviewed Dependabot PRs are just pins
+# with extra steps.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /functions
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: pip
+    directory: /dbt
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      # dbt-core and dbt-duckdb are version-coupled - an adapter bump that lands separately from
+      # its matching core bump just produces a PR that can't pass CI on its own.
+      dbt:
+        patterns:
+          - "dbt-*"
+          - "duckdb"
+
+  - package-ecosystem: pip
+    directory: /mcp_server
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

@@ -1,5 +1,8 @@
-requests
-python-dotenv
-azure-identity
-azure-keyvault-secrets
-azure-storage-blob
+# Dependencies for scripts/ (manual/local operational tooling - OAuth bootstrap, backfills,
+# ad-hoc mart queries). Patch-level pins, matching functions/requirements.txt, which these
+# scripts share code with via functions/shared/.
+requests~=2.34.2
+python-dotenv~=1.2.2
+azure-identity~=1.25.3
+azure-keyvault-secrets~=4.11.0
+azure-storage-blob~=12.30.0

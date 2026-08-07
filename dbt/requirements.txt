@@ -1,2 +1,10 @@
-dbt-core
-dbt-duckdb
+# Patch-level pins - see functions/requirements.txt for the rationale. It matters most here:
+# this is what the nightly 05:00 cron and the weekly --full-refresh install, unattended, with
+# nobody watching. dbt-core minor releases have changed test-definition syntax (this project
+# already uses the newer `arguments:` form), and the models lean on specific DuckDB behaviours
+# documented in dbt/macros/incremental_scoping.sql - glob() path listing, read_json(columns=...),
+# and partitioned COPY leaving out-of-scope partitions untouched. duckdb is pinned explicitly
+# rather than left to dbt-duckdb's resolver for exactly that reason.
+dbt-core~=1.12.0
+dbt-duckdb~=1.10.1
+duckdb~=1.5.5

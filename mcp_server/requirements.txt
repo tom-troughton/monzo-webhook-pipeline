@@ -1,3 +1,6 @@
-mcp
-duckdb
-python-dotenv
+# Patch-level pins - see functions/requirements.txt for the rationale. `mcp` especially: the SDK
+# renamed FastMCP to MCPServer in a major release, which is exactly the kind of import-level break
+# an unpinned dependency delivers on whatever day you next launch the server.
+mcp~=2.0.0
+duckdb~=1.5.5
+python-dotenv~=1.2.2
