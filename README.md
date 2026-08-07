@@ -1,4 +1,4 @@
-# Personal Finance Data Platform
+# Monzo Data Pipeline
 
 A production-inspired data engineering platform built around my own Monzo transaction data — event-driven
 ingestion, API reconciliation, incremental transformation with dbt/DuckDB, and a governed query layer
