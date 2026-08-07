@@ -68,10 +68,14 @@ def get_subscriptions(con: duckdb.DuckDBPyConnection) -> list[dict]:
 
 def get_data_quality_report(con: duckdb.DuckDBPyConnection) -> dict:
     """Data quality snapshot computed live from staging/marts - not dependent on stored dbt test
-    results (freshness/reconciliation dbt tests aren't built yet). hours_since_last_transaction is
-    a proxy for "how recent is the data we have", not "how recently did ingestion last run" -
-    the webhook/reconciliation Function isn't deployed yet, so there's no ingestion-run signal to
-    report on directly.
+    results (freshness/reconciliation dbt tests aren't built yet).
+
+    hours_since_last_transaction is a proxy for "how recent is the data we have", not "how
+    recently did ingestion last run" - on a personal account those differ, since a quiet week
+    produces no transactions at all. The real ingestion-run signal now exists (the reconciliation
+    heartbeat in ops/, see docs/decisions/0017-reconciliation-heartbeat-blob.md), monitored by
+    .github/workflows/pipeline_health.yml; surfacing it through this tool as well is deferred,
+    not blocked.
     """
     row = con.execute("""
         select

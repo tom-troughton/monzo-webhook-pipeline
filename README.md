@@ -152,11 +152,24 @@ Fully built and deployed - infrastructure, Function App, dbt pipeline, and MCP s
   dimension/fact models → 4 curated marts, materialized straight to Parquet in `staging/`/`marts/`.
   Two targets - `dev` (local fixtures, no cloud calls) and `azure` (the real containers, via
   DuckDB's `azure` extension with OIDC/`credential_chain` auth, no stored secret).
-- **`.github/workflows/`**: `deploy.yml` (Terraform plan/apply + Function publish, OIDC),
-  `dbt.yml` (dbt build against fixtures on every PR; against real Blob Storage on push to
-  `master`, nightly cron, manual dispatch, or `repository_dispatch` from the Event Grid handler),
-  and `reconcile.yml` (the external trigger replacing the native Timer trigger).
-- **`raw/`/`staging/`/`marts/` hold my real transaction history**, not synthetic data.
+- **`.github/workflows/`**: `deploy.yml` (Terraform plan/apply + Function publish, OIDC, gated on
+  the test suite passing), `tests.yml` (pytest for `functions/` and `mcp_server/`; reused by
+  `deploy.yml` as that gate rather than duplicated), `dbt.yml` (dbt build against fixtures on every
+  PR; against real Blob Storage on push to `master`, nightly cron, manual dispatch, or
+  `repository_dispatch` from the Event Grid handler), `reconcile.yml` (the external trigger
+  replacing the native Timer trigger), and `pipeline_health.yml` (daily liveness check — see below).
+- **Dead-pipeline detection** ([ADR-0017](docs/decisions/0017-reconciliation-heartbeat-blob.md)):
+  reconciliation writes a heartbeat blob to `ops/` after every successful run, and a daily
+  scheduled workflow fails — which emails me — if that heartbeat or the published marts go stale.
+  A heartbeat rather than a transaction-freshness check, because on a personal account "no spending
+  this week" and "ingestion is dead" otherwise look identical. The same workflow carries a monthly
+  keepalive commit, since GitHub disables scheduled workflows after 60 days of repository
+  inactivity — which would silently stop reconciliation, dbt *and* this check together.
+- **`raw/`/`staging/`/`marts/` hold my real transaction history**, not synthetic data — protected
+  by 14-day blob soft delete, since `raw/` is the one layer that can't be rebuilt (re-fetching it
+  from Monzo needs interactive re-authorisation and a walk in year-long windows). Versioning is
+  deliberately off: dbt rewrites `staging/`/`marts/` every run, and versions don't expire on their
+  own.
 - **Operational scripts** (`scripts/`): one-time OAuth bootstrap, webhook registration, API sanity
   checks, a one-off historical backfill, and `query_marts.py` for ad-hoc SQL against the real marts.
 - **MCP server** (`mcp_server/`): the 5 curated tools the spec names — `get_spend_by_category`,
@@ -179,7 +192,7 @@ dbt/          dbt-duckdb transformation layer — staging → dims/fact → mart
 scripts/      manual/local-only operational tooling (OAuth bootstrap, backfill, mart queries) — never run in CI
 mcp_server/   MCP server exposing 5 curated tools over the dbt marts, runs locally over stdio
 docs/         full spec + architecture decision records
-.github/      CI: infra/app deploy, dbt build/publish, external reconciliation trigger
+.github/      CI: infra/app deploy, tests, dbt build/publish, reconciliation trigger, health check
 ```
 
 See [ADR-0006](docs/decisions/0006-monorepo-layout.md) for why this is one repo, laid out by
@@ -198,6 +211,11 @@ pytest mcp_server/tests
 Both are unit tests against mocked Azure/Monzo clients or an in-memory DuckDB — nothing here
 touches a real account or real infrastructure, and nothing here would catch the platform-specific
 issues described above (see "A debugging story worth reading").
+
+Both suites run in CI via `tests.yml`, which `deploy.yml` calls as a required gate — Function code
+can't reach Azure without them passing. Dependencies are pinned to the patch level across all four
+requirements files, with Dependabot raising upgrades as PRs that those same checks gate; an
+unattended 05:00 cron is the wrong place to discover a breaking release.
 
 ## Running dbt
 
