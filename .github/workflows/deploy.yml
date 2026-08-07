@@ -29,6 +29,14 @@ env:
   ARM_USE_OIDC: true
 
 jobs:
+  # Hard gate on the Function App's own test suite before any code is published. Reuses
+  # tests.yml rather than repeating its steps, so this gate and the PR check are the same job
+  # by construction. Runs in parallel with terraform - only deploy-functions waits on it, since
+  # the infrastructure apply doesn't depend on Python tests passing.
+  test:
+    name: Tests
+    uses: ./.github/workflows/tests.yml
+
   terraform:
     name: Terraform plan/apply
     runs-on: ubuntu-latest
@@ -73,7 +81,7 @@ jobs:
 
   deploy-functions:
     name: Deploy Function App code
-    needs: terraform
+    needs: [terraform, test]
     if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
