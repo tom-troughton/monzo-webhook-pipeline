@@ -104,7 +104,7 @@ for the reasoning already applied to the Function App hosting plan.
   Predates `mcp_server/` (see below) and stays useful alongside it for ad-hoc SQL the 5 curated
   tools don't cover.
 - `dbt/` — dbt-duckdb project, verified end-to-end against both local fixtures and the real `raw/`
-  container (`dbt build` passes: 10 models, 25 data tests, either way). `stg_transactions`
+  container (`dbt build` passes: 10 models, 28 data tests, either way). `stg_transactions`
   (incremental, merge on `transaction_id`, reconciliation wins over webhook per
   [ADR-0001](docs/decisions/0001-reconciliation-as-source-of-truth.md)) →
   `dim_account`/`dim_category`/`dim_merchant`/`fct_transactions` → `mart_spend_by_category`/
@@ -265,6 +265,31 @@ for the reasoning already applied to the Function App hosting plan.
   Also: each target uses its own local DuckDB file (`dev.duckdb`/`azure.duckdb`, gitignored) rather
   than `:memory:`, since an in-memory DB doesn't survive between separate `dbt` CLI invocations
   (breaks `dbt run` then `dbt show`), and a shared file would mix tables from both sources.
+- **Reconciliation/completeness tests (`dbt/tests/`, 3 singular tests) assert on the published
+  artifacts, not on dbt's own relations** — see
+  [ADR-0019](docs/decisions/0019-reconciliation-tests-assert-on-published-artifacts.md). Everything
+  before these was column-level (`unique`/`not_null`/`accepted_values`/`relationships`), which
+  answers "is each row well-formed?" and never "did all the rows arrive?". ADR-0018 is the proof
+  that mattered: seven transactions were missing from `staging/` and every test passed, because the
+  survivors were individually valid and every mart re-derives from `stg_transactions` (which
+  re-reads the whole month from `raw/`) — only the published Parquet had the hole, which is exactly
+  what `mcp_server` reads. So `ref()`-ing an external model would be testing a restatement of its
+  own SELECT; the tests `read_parquet()` the real files and use `-- depends_on:` purely for DAG
+  ordering. `assert_raw_blobs_reconcile_to_stg_transactions` is the one input the DAG doesn't
+  produce (a consistent scoping bug would make every other test agree with itself), and **it reads
+  no JSON at all**: `raw/` is one blob per transaction named `<transaction_id>.json`, so the ID set
+  comes out of the `glob()` path listing — same trick `incremental_scan_from()` uses on `staging/`
+  partition names. 4,997 blobs listed and compared in 2.6s, vs. minutes for a `read_json` over the
+  same files. Whole suite costs ~5s on a ~48s `azure` run (the `staging/` test is the expensive one
+  at 13.5s — it reads all 85+ partitions, the accepted price of asserting on the artifact).
+  **Gotcha:** the `raw/` test excludes the current UTC day on both sides deliberately — dbt reads
+  `raw/` minutes before the test runs, and a webhook blob landing in that gap is a working pipeline,
+  not a defect. A residual race survives it (reconciliation writing a *backdated* transaction
+  mid-run lands in an older path, which the day exclusion can't cover) — if that test ever fails
+  listing a handful of IDs that are demonstrably present in `raw/`, re-run before investigating.
+  **Source freshness was deliberately not added** despite sitting in the same spec section: on a
+  personal account "no spending for three days" and "the refresh token was revoked" are the same
+  observation, which is why that signal lives in ADR-0017's heartbeat instead.
 - Reading the storage account's **data plane** needed an explicit RBAC grant even for the
   subscription owner — `Contributor` at the resource-group scope only covers control-plane
   operations, same gotcha the tfstate backend already required a workaround for. `terraform/main.tf`
