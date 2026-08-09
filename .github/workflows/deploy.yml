@@ -103,8 +103,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Pinned exactly, not @4. This npm package is a thin wrapper: its install script downloads
+      # the real binary from cdn.functions.azure.com, keyed on a "consolidated build" id baked into
+      # its package.json. 4.13.1 and 4.13.2 both point at build 4.0.296705, whose linux-x64 zip was
+      # never published - so `npm install` 404s and the job dies with nothing changed on our side.
+      # Verified: 4.13.2/4.13.1 -> 404, 4.13.0 (build 4.0.290904) -> 200.
+      #
+      # Same reasoning as the ~= pins in every requirements.txt here - an unattended deploy is the
+      # wrong place to first meet a broken release - except this one can't be a ~= pin, because a
+      # patch bump is exactly what broke it. Dependabot doesn't watch this either (a bare
+      # `npm install -g` is not a manifest), so bumping it is deliberate and manual.
       - name: Install Azure Functions Core Tools
-        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+        run: npm install -g azure-functions-core-tools@4.13.0 --unsafe-perm true
 
       # func's own post-deploy health check is unreliable against Flex Consumption apps - it
       # reported "unhealthy" on two separate deploys here even though the app was confirmed
