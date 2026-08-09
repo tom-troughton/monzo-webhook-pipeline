@@ -36,6 +36,16 @@ resource "azurerm_function_app_flex_consumption" "main" {
   location            = var.location
   service_plan_id     = azurerm_service_plan.main.id
 
+  # Defaults to false on this resource - and false here meant the app genuinely served plain HTTP
+  # (verified: POST http://.../api/webhook/<x> returned 400, not a redirect). Every route on this
+  # app authenticates with a secret in the URL *path* (shared/path_secret.py), because Monzo
+  # doesn't sign its webhooks and there's no header to put it in for that caller. A path secret
+  # over cleartext is the credential itself in plaintext on the wire, so this isn't the usual
+  # defence-in-depth HTTPS toggle - it's what stops the only thing guarding these endpoints from
+  # being readable in transit. Azure 301s HTTP to HTTPS with this set; every existing caller
+  # (Monzo's registered webhook, Event Grid, reconcile.yml) already uses https:// regardless.
+  https_only = true
+
   storage_container_type      = "blobContainer"
   storage_container_endpoint  = "https://${var.storage_account_name}.blob.core.windows.net/${azurerm_storage_container.deployments.name}"
   storage_authentication_type = "SystemAssignedIdentity"
