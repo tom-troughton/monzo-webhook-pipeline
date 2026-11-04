@@ -1,5 +1,8 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from shared.consent import MonzoConsentRequired
 from shared.transactions import PAGE_SIZE, fetch_account_transactions, fetch_recent_transactions
 
 
@@ -95,3 +98,22 @@ def test_fetches_across_every_account():
     assert len(transactions) == 5
     queried = [c.kwargs["params"]["account_id"] for c in mock_get.call_args_list[1:]]
     assert queried == ["acc_1", "acc_2"]
+
+
+def test_a_403_from_accounts_is_reported_as_lapsed_consent():
+    """A lapsed 90-day consent leaves token refresh working but 403s every data call. Surfacing it
+    as a named error is what lets reconcile say why it failed instead of a bare HTTPError."""
+    forbidden = MagicMock(status_code=403, json=lambda: {"code": "forbidden.insufficient_permissions"})
+    with patch("shared.transactions.requests.get", return_value=forbidden):
+        with pytest.raises(MonzoConsentRequired, match="monzo_oauth.py"):
+            fetch_recent_transactions("token")
+
+
+def test_a_403_without_a_json_body_is_still_reported_as_lapsed_consent():
+    def no_json():
+        raise ValueError("not json")
+
+    forbidden = MagicMock(status_code=403, json=no_json)
+    with patch("shared.transactions.requests.get", return_value=forbidden):
+        with pytest.raises(MonzoConsentRequired, match="unknown"):
+            fetch_recent_transactions("token")

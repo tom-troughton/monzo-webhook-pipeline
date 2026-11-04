@@ -6,6 +6,7 @@ import azure.functions as func
 from shared.blob_writer import write_transaction
 from shared.event_grid import validation_response
 from shared.github_dispatch import trigger_dbt_pipeline
+from shared.consent import MonzoConsentRequired
 from shared.heartbeat import record_reconcile_run
 from shared.monzo_auth import get_access_token
 from shared.path_secret import check_path_secret
@@ -57,8 +58,17 @@ def reconcile(req: func.HttpRequest) -> func.HttpResponse:
 
     access_token = get_access_token()
 
+    try:
+        transactions = fetch_recent_transactions(access_token)
+    except MonzoConsentRequired as exc:
+        # A lapsed 90-day consent, not a crash - named explicitly so the cause is in the log line
+        # and the reconcile workflow's output rather than buried in an HTTPError traceback.
+        # Returns before record_reconcile_run(), so the heartbeat still goes stale as it should.
+        logging.error("Reconciliation blocked: %s", exc)
+        return func.HttpResponse(str(exc), status_code=503)
+
     written = 0
-    for transaction in fetch_recent_transactions(access_token):
+    for transaction in transactions:
         write_transaction(transaction, source="reconciliation")
         written += 1
 

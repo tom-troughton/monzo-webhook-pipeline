@@ -12,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from shared.consent import MonzoConsentRequired
+
 API_BASE = "https://api.monzo.com"
 # Monzo's maximum page size. Also its default, which is what made the missing pagination invisible
 # at personal transaction volumes - under 100 results in the window, one request returns everything.
@@ -23,6 +25,20 @@ TIMEOUT_SECONDS = 30
 
 def fetch_accounts(headers: dict) -> list[dict]:
     response = requests.get(f"{API_BASE}/accounts", headers=headers, timeout=TIMEOUT_SECONDS)
+    # /accounts is the first data call after a refresh, so this is where a lapsed 90-day consent
+    # surfaces - as a 403 indistinguishable, in a generic HTTPError, from any other failure.
+    # Deliberately only here and not in fetch_account_transactions(): there, a 403 is usually
+    # forbidden.verification_required for a window older than recent consent allows (the
+    # backfill script hits it routinely), which is a different problem with a different fix.
+    if response.status_code == 403:
+        try:
+            code = response.json().get("code", "unknown")
+        except ValueError:
+            code = "unknown"
+        raise MonzoConsentRequired(
+            f"Monzo returned 403 ({code}) for /accounts. The 90-day consent has most likely "
+            "lapsed - re-run scripts/monzo_oauth.py and approve in the Monzo app."
+        )
     response.raise_for_status()
     return response.json()["accounts"]
 

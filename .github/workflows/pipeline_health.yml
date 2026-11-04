@@ -45,6 +45,10 @@ jobs:
       # dbt publishes nightly at minimum (cron), and per-transaction via Event Grid. 48h means
       # two consecutive nightly runs would have to fail before this fires.
       MARTS_MAX_AGE_HOURS: 48
+      # Monzo expires API consent 90 days after the last interactive approval. Failing from day
+      # 80 gives ~10 days' notice, repeated daily (one email per run) until it's renewed.
+      CONSENT_WARN_DAYS: 80
+      CONSENT_EXPIRY_DAYS: 90
     steps:
       - uses: azure/login@v3
         with:
@@ -83,7 +87,7 @@ jobs:
             hours=$(age_hours "$last_run_at")
 
             if [ "$hours" -gt "$RECONCILE_MAX_AGE_HOURS" ]; then
-              fail "Reconciliation last succeeded ${hours}h ago (limit ${RECONCILE_MAX_AGE_HOURS}h, runs 6-hourly). Most likely an expired Monzo refresh token - recovery needs scripts/monzo_oauth.py. Check the Reconcile workflow's recent runs first."
+              fail "Reconciliation last succeeded ${hours}h ago (limit ${RECONCILE_MAX_AGE_HOURS}h, runs 6-hourly). Most likely a lapsed 90-day Monzo consent or revoked token - recovery needs scripts/monzo_oauth.py. The Reconcile workflow's recent run output names the cause."
             else
               echo "OK: reconciliation succeeded ${hours}h ago, writing ${written} transactions."
             fi
@@ -105,6 +109,34 @@ jobs:
               fail "marts/monthly_cashflow.parquet last written ${hours}h ago (limit ${MARTS_MAX_AGE_HOURS}h, published nightly). Check the dbt workflow's recent runs."
             else
               echo "OK: marts last published ${hours}h ago."
+            fi
+          fi
+
+          # --- Auth: is the Monzo consent about to lapse? ---------------------------------------
+          # The only check here that fires *before* anything breaks. When the 90-day consent
+          # lapses, token refresh still succeeds but every data call 403s - the heartbeat check
+          # above catches that, but only after a day of missed reconciliation. See ADR-0020.
+          exists=$(az storage blob exists \
+            --account-name "$STORAGE_ACCOUNT" --container-name ops \
+            --name monzo-consent.json --auth-mode login \
+            --query exists -o tsv --only-show-errors)
+
+          if [ "$exists" != "true" ]; then
+            fail "No Monzo consent marker in ops/monzo-consent.json, so consent expiry can't be predicted. Re-running scripts/monzo_oauth.py writes it."
+          else
+            az storage blob download \
+              --account-name "$STORAGE_ACCOUNT" --container-name ops \
+              --name monzo-consent.json --auth-mode login \
+              --file consent.json --no-progress --only-show-errors > /dev/null
+
+            consented_at=$(jq -r .consented_at consent.json)
+            days=$(( $(age_hours "$consented_at") / 24 ))
+            remaining=$(( CONSENT_EXPIRY_DAYS - days ))
+
+            if [ "$days" -ge "$CONSENT_WARN_DAYS" ]; then
+              fail "Monzo consent granted ${days} days ago (${consented_at}) and expires after ${CONSENT_EXPIRY_DAYS} - about ${remaining} day(s) left. Re-run scripts/monzo_oauth.py locally and approve in the Monzo app."
+            else
+              echo "OK: Monzo consent granted ${days} days ago, about ${remaining} days until expiry."
             fi
           fi
 

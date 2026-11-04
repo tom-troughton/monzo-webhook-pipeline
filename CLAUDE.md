@@ -373,6 +373,17 @@ for the reasoning already applied to the Function App hosting plan.
   inactivity, which would stop `reconcile.yml`, `dbt.yml` and the health check together, and is the
   one failure mode a scheduled checker can't self-detect. That path matches no other workflow's
   `paths:` filter, so the commit deploys/rebuilds/tests nothing.
+- **Monzo 90-day consent expiry is predicted, not just detected**
+  ([ADR-0020](docs/decisions/0020-monzo-consent-expiry-warning.md)). Monzo makes the user
+  re-approve API access every 90 days; token refresh does **not** reset it. When it lapses the
+  refresh grant still succeeds but `/accounts` 403s - first hit 2026-11-03, exactly 90 days after
+  the backfill's re-auth. `scripts/monzo_oauth.py` now writes `ops/monzo-consent.json` after the
+  in-app approval, and `pipeline_health.yml` fails from day 80 (daily, until renewed). If it lapses
+  anyway, `reconcile` returns a 503 naming the cause (`MonzoConsentRequired`, raised by
+  `fetch_accounts()` only - a `/transactions` 403 is the separate backfill-window problem) and
+  `reconcile.yml` prints the response body. **Recovery is always:** run
+  `venv\Scripts\python scripts\monzo_oauth.py` locally (the root venv, not system Python) and
+  approve in the Monzo app.
 - `mcp_server/` — the 5 tools the spec's MCP section names (`get_spend_by_category`,
   `get_monthly_cashflow`, `get_top_merchants`, `get_subscriptions`, `get_data_quality_report`),
   built on the `mcp` SDK's `MCPServer` (the current SDK major version renamed `FastMCP` to this -
