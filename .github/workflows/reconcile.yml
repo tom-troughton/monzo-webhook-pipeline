@@ -23,11 +23,13 @@ jobs:
     steps:
       - name: Trigger reconciliation
         run: |
-          status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+          # Body kept rather than discarded: a 503 carries the reason (a lapsed Monzo consent),
+          # which is the difference between a one-line fix and an App Insights investigation.
+          status=$(curl -s -o response.txt -w "%{http_code}" -X POST \
             "https://func-monzode-dev.azurewebsites.net/api/reconcile/${{ secrets.RECONCILE_TRIGGER_SECRET }}" \
             --max-time 300)
           if [ "$status" != "200" ]; then
-            echo "Reconcile trigger failed with HTTP $status"
+            echo "::error::Reconcile trigger failed with HTTP $status: $(head -c 500 response.txt)"
             exit 1
           fi
           echo "Reconcile triggered successfully (HTTP 200)"

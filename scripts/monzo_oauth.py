@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "functions"))
 
+from shared.consent import record_consent
 from shared.kv import get_secret
 from shared.monzo_auth import exchange_authorization_code
 
@@ -62,6 +63,11 @@ def main():
 
     print("Now open the Monzo app - you should see a request to confirm access for this client.")
     input("Press Enter once you've approved it in the app...")
+
+    # After the in-app approval, not after the code exchange: the approval is what starts Monzo's
+    # 90-day clock, and pipeline_health.yml warns ahead of its expiry from this timestamp.
+    record_consent()
+    print("Consent time recorded in ops/ - pipeline_health.yml will warn before it expires.")
 
 
 if __name__ == "__main__":
