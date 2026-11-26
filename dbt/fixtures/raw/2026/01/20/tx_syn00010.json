@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000pret000001",
+      "group_id": "grp_0000pret000001",
       "name": "Pret A Manger",
       "category": "eating_out",
       "emoji": "\ud83e\udd6a",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -650,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

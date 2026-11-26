@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000tesco00001",
+      "group_id": "grp_0000tesco00001",
       "name": "Tesco",
       "category": "groceries",
       "emoji": "\ud83d\uded2",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -4505,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

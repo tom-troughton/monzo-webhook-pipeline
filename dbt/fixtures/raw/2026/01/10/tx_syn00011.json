@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000tfl0000001",
+      "group_id": "grp_0000tfl0000001",
       "name": "Transport for London",
       "category": "transport",
       "emoji": "\ud83d\ude87",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -290,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

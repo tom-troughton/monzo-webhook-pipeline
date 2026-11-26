@@ -1,0 +1,14 @@
+version: 2
+
+seeds:
+  - name: currency_exponents
+    description: >
+      ISO 4217 minor-unit exponents for currencies that are NOT 2 decimal places. Monzo sends
+      local_amount in the currency's minor units, so JPY's 0 exponent means local_amount is whole
+      yen - dividing by 100 there would understate a yen purchase 100x. Anything absent from this
+      list is treated as 2 (mcp_transactions' coalesce), which covers GBP/EUR/USD and most others.
+    columns:
+      - name: currency
+        data_tests:
+          - unique
+          - not_null

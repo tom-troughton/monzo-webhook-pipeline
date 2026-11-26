@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: int_merchant_groups
+    description: >
+      One row per logical merchant, keyed on the normalised merchant name (Monzo's group_id is one
+      per spelling, so it can't fold "UNIQLO 201" into "Uniqlo" - see the merchant_group_key() macro). Unique on the key means every group maps
+      to exactly one canonical display name.
+    columns:
+      - name: merchant_group_key
+        data_tests:
+          - unique
+          - not_null
+      - name: merchant_group_name
+        data_tests:
+          - not_null

@@ -13,6 +13,8 @@
 -- against nothing in the already-published files and errors. Any column change here needs a
 -- one-off `dbt build --target azure --full-refresh` (which skips the union entirely - see
 -- incremental_scan_from()) to republish staging/, after which normal incremental runs work again.
+-- .github/workflows/dbt.yml does this automatically: every push to master runs --full-refresh,
+-- since a merged model change is exactly when the published shape can change.
 --
 -- Reconciliation is the source of truth over webhook deliveries (docs/decisions/0001) - within a
 -- single raw/ read that only matters if the same transaction_id somehow appears twice (shouldn't
@@ -46,6 +48,15 @@ with new_read as (
         transaction.merchant.emoji as merchant_emoji,
         transaction.merchant.online as merchant_online,
         transaction.merchant.atm as merchant_atm,
+        transaction.merchant.group_id as merchant_group_id,
+        transaction.merchant.address.country as merchant_country,
+        transaction.merchant.address.city as merchant_city,
+        -- Original-currency amount, still in that currency's minor units (JPY has none, so this
+        -- is whole yen) - converted with the currency_exponents seed downstream, never /100 here.
+        transaction.local_amount as local_amount_minor_units,
+        transaction.local_currency as local_currency,
+        -- Raw name; masked to "First L." in mcp_transactions, the only model the MCP server reads.
+        nullif(transaction.counterparty.name, '') as counterparty_name,
         source as ingestion_source,
         row_number() over (
             partition by transaction.id
@@ -77,6 +88,12 @@ new_deduped as (
         merchant_emoji,
         merchant_online,
         merchant_atm,
+        merchant_group_id,
+        merchant_country,
+        merchant_city,
+        local_amount_minor_units,
+        local_currency,
+        counterparty_name,
         ingestion_source
     from new_read
     where row_num = 1
@@ -108,6 +125,12 @@ existing as (
         merchant_emoji,
         merchant_online,
         merchant_atm,
+        merchant_group_id,
+        merchant_country,
+        merchant_city,
+        local_amount_minor_units,
+        local_currency,
+        counterparty_name,
         ingestion_source
     -- Partition predicate, not an anti-join against new_deduped. The two are equivalent here
     -- (verified: both return the same row count and the same distinct transaction_id count),
@@ -126,7 +149,7 @@ existing as (
 
 )
 
--- `by name`, not positional: the two branches list 20 columns of which description/category/notes
+-- `by name`, not positional: the two branches list 26 columns of which description/category/notes
 -- are all VARCHAR and is_settled/is_declined/is_load/merchant_online/merchant_atm are all BOOLEAN,
 -- so a positional union would silently swap values if either list were ever reordered.
 select * from new_deduped

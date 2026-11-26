@@ -96,10 +96,14 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # Full refresh on the weekly backstop cron, and on every push to master: a push here means
+      # dbt code changed, and a model that adds a column can't run incrementally until staging/ is
+      # republished in the new shape (stg_transactions' `existing` branch would select a column
+      # the old Parquet doesn't have). Rare enough that the extra minutes don't matter.
       - name: Determine build args
         id: build_args
         run: |
-          if [ "${{ github.event.schedule }}" = "0 5 * * 0" ]; then
+          if [ "${{ github.event.schedule }}" = "0 5 * * 0" ] || [ "${{ github.event_name }}" = "push" ]; then
             echo "args=--full-refresh" >> "$GITHUB_OUTPUT"
           else
             echo "args=" >> "$GITHUB_OUTPUT"

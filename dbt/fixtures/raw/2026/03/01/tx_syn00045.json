@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000council001",
+      "group_id": "grp_0000council001",
       "name": "Local Council Tax",
       "category": "bills",
       "emoji": "\ud83c\udfdb\ufe0f",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -18500,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

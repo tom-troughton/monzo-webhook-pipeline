@@ -14,11 +14,19 @@
     "decline_reason": "INSUFFICIENT_FUNDS",
     "merchant": {
       "id": "merch_0000amazon0001",
+      "group_id": "grp_0000amazon0001",
       "name": "Amazon",
       "category": "shopping",
       "emoji": "\ud83d\udce6",
       "online": true,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -18999,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

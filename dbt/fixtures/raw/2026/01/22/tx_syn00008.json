@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000aldi000001",
+      "group_id": "grp_0000aldi000001",
       "name": "Aldi",
       "category": "groceries",
       "emoji": "\ud83d\uded2",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -3160,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

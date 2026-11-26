@@ -16,3 +16,4 @@ dbt/azure.duckdb.wal
 dbt/.user.yml
 dbt/export/
 scratch/
+mcp_server/logs/

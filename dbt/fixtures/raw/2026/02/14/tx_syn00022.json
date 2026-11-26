@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000sainsburys1",
+      "group_id": "grp_0000sainsburys1",
       "name": "Sainsbury's",
       "category": "groceries",
       "emoji": "\ud83d\uded2",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -6042,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

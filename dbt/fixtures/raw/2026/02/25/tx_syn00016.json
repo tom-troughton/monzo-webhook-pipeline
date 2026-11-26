@@ -12,6 +12,9 @@
     "notes": "",
     "is_load": false,
     "decline_reason": null,
-    "merchant": null
+    "merchant": null,
+    "local_amount": 285000,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }
