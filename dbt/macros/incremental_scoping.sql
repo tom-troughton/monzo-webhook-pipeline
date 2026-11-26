@@ -48,9 +48,15 @@
   which is both correct and self-correcting.
 #}
 
+{#
+  MUST stay identical to the columns={...} map in models/staging/_sources.yml - that one can't call
+  this macro (source external_location renders before custom macros exist; see CLAUDE.md), so the
+  schema lives in both places. A field added to only one of them binds on one read path and fails
+  with "Could not find key" on the other.
+#}
 {% macro raw_transaction_columns() %}
-  {%- set merchant_struct = "STRUCT(id VARCHAR, name VARCHAR, category VARCHAR, emoji VARCHAR, online BOOLEAN, atm BOOLEAN)" -%}
-  {{ return("{'source': 'VARCHAR', 'transaction': 'STRUCT(id VARCHAR, account_id VARCHAR, amount BIGINT, currency VARCHAR, created VARCHAR, settled VARCHAR, description VARCHAR, category VARCHAR, notes VARCHAR, is_load BOOLEAN, decline_reason VARCHAR, merchant " ~ merchant_struct ~ ")'}") }}
+  {%- set merchant_struct = "STRUCT(id VARCHAR, group_id VARCHAR, name VARCHAR, category VARCHAR, emoji VARCHAR, online BOOLEAN, atm BOOLEAN, address STRUCT(city VARCHAR, country VARCHAR))" -%}
+  {{ return("{'source': 'VARCHAR', 'transaction': 'STRUCT(id VARCHAR, account_id VARCHAR, amount BIGINT, currency VARCHAR, created VARCHAR, settled VARCHAR, description VARCHAR, category VARCHAR, notes VARCHAR, is_load BOOLEAN, decline_reason VARCHAR, local_amount BIGINT, local_currency VARCHAR, counterparty STRUCT(name VARCHAR), merchant " ~ merchant_struct ~ ")'}") }}
 {% endmacro %}
 
 {#

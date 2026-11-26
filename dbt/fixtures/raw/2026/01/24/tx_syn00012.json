@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000uber000001",
+      "group_id": "grp_0000uber000001",
       "name": "Uber",
       "category": "transport",
       "emoji": "\ud83d\ude95",
       "online": true,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -1180,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

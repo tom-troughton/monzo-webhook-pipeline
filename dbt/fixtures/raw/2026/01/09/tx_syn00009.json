@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000costa00001",
+      "group_id": "grp_0000costa00001",
       "name": "Costa Coffee",
       "category": "eating_out",
       "emoji": "\u2615",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -395,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

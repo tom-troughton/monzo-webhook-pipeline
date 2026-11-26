@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000puregym0001",
+      "group_id": "grp_0000puregym0001",
       "name": "PureGym",
       "category": "personal_care",
       "emoji": "\ud83d\udcaa",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -3500,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

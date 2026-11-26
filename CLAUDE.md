@@ -405,6 +405,39 @@ for the reasoning already applied to the Function App hosting plan.
   `python -m mcp_server.server` (stdio transport) per the spec's "not a hosted service" intent -
   launch it from an MCP client config, same as any other local MCP server. Tests run in CI now
   (`.github/workflows/tests.yml`), alongside `functions/`'s.
+- **Transaction-level MCP tools** (`get_transactions`, `search_transactions`, `get_spend_summary`
+  in `mcp_server/transaction_tools.py`), per the "Monzo MCP: transaction-level tools spec" doc.
+  They read **only** `marts/mcp_transactions.parquet` (`dbt/models/marts/mcp_transactions.sql`):
+  exactly the spec's row shape, with untrusted text (notes, merchant/counterparty names)
+  sanitised and counterparties masked to "Jane D." **in the model**, so the raw forms never reach
+  the served file. One unpartitioned file on purpose — per-file HTTPS latency dominates here (see
+  the threads note above), and ~5,000 rows is well under 1 MB. Guardrails live in
+  `transaction_tools.py` (not the `@mcp.tool()` wrappers) so the tests hit them directly: bound
+  parameters only, enum allow-lists, 366-day/500-row caps on row-level tools, notes only with
+  `include_notes=true`, dates interpreted in Europe/London. `mcp_server/safety.py` adds the
+  per-call audit log (`mcp_server/logs/audit.log`, gitignored; parameters and row counts, never
+  rows) and refuses any transport but stdio or loopback HTTP. **Sign convention:** `amount_gbp`
+  is signed like `fct_transactions` (negative = spend); `get_spend_summary` reports spend as a
+  positive `total_gbp` with refunds separate. New raw fields (`local_amount`/`local_currency`,
+  `merchant.group_id`, `merchant.address`, `counterparty.name`) were already in every `raw/`
+  blob - only the dbt read schema lacked them. **That schema lives in two places that must match:**
+  `_sources.yml`'s `columns={...}` and `raw_transaction_columns()` in
+  `dbt/macros/incremental_scoping.sql` (the source can't call the macro - gotcha #2 above). Adding
+  a field to one only fails with "Could not find key" on the other read path. **JPY has no minor
+  unit**, so `local_amount` is converted via the `currency_exponents` seed, never `/100`.
+  **Merchant dedup:** `int_merchant_groups` keys on the *normalised merchant name* (store numbers
+  stripped), falling back to `group_id`/`merchant_id`, and `mart_merchant_summary` now groups by it.
+  Monzo gives one business many `merchant_id`s (51 for Amazon), which is why `get_top_merchants`
+  listed it several times. **`merchant.group_id` is not a business-level key**, despite the name:
+  checked across every `raw/` blob, it's exactly one per merchant *spelling* (775 groups, none
+  with two names), so "UNIQLO 201"/"UNIQLO 202"/"Uniqlo" are separate groups and every row has
+  one - keyed on it first, the name fallback would never run. **Still open from the spec's R1:** the server authenticates with
+  the developer's `az login`, which has `Storage Blob Data Contributor` on the whole account
+  (`raw/` included). Enforcing read-only properly needs a separate read-only identity — an infra
+  decision, not made yet; the code only ever issues SELECTs.
+- **Every push to `master` touching `dbt/**` now runs `--full-refresh`** in `dbt.yml`'s `publish`
+  job, not just the weekly cron: a merged model change is exactly when a column can be added, and
+  `stg_transactions`' `existing` branch can't select a column the old `staging/` Parquet lacks.
 
 **Resolved (was "Partially applied"):** the `Y1` Consumption plan's App Service quota is still stuck
 at 0 subscription-wide (Azure's Capacity Management team responded to the quota-increase request

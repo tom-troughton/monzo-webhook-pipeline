@@ -4,7 +4,9 @@ select
     any_value(merchant_category) as merchant_category,
     any_value(merchant_emoji) as merchant_emoji,
     any_value(merchant_online) as is_online_merchant,
-    any_value(merchant_atm) as is_atm
+    any_value(merchant_atm) as is_atm,
+    -- A merchant_id keeps one name in practice, so any_value is safe; see int_merchant_groups.
+    any_value({{ merchant_group_key() }}) as merchant_group_key
 from {{ ref('stg_transactions') }}
 where merchant_id is not null
 group by merchant_id

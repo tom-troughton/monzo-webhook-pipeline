@@ -17,12 +17,15 @@ sources:
       literal braces - dbt-duckdb's default formatter runs this whole string through Python's
       str.format_map(), which misreads literal braces as format-string substitution fields.
       oldstyle uses %-substitution instead, which a plain string with no `%` in it survives as-is.
+      Must stay identical to raw_transaction_columns() in macros/incremental_scoping.sql (the
+      scoped read path). Structs list only the subfields read downstream - extra JSON keys (merchant.logo,
+      counterparty.sort_code, ...) are ignored, which also keeps bank details out of every model.
     meta:
       formatter: oldstyle
       external_location: >-
         read_json('{{ 'az://raw/**/*.json' if target.name == 'azure' else var("raw_transactions_glob") }}',
         format='auto', union_by_name=true,
-        columns={'source': 'VARCHAR', 'transaction': 'STRUCT(id VARCHAR, account_id VARCHAR, amount BIGINT, currency VARCHAR, created VARCHAR, settled VARCHAR, description VARCHAR, category VARCHAR, notes VARCHAR, is_load BOOLEAN, decline_reason VARCHAR, merchant STRUCT(id VARCHAR, name VARCHAR, category VARCHAR, emoji VARCHAR, online BOOLEAN, atm BOOLEAN))'})
+        columns={'source': 'VARCHAR', 'transaction': 'STRUCT(id VARCHAR, account_id VARCHAR, amount BIGINT, currency VARCHAR, created VARCHAR, settled VARCHAR, description VARCHAR, category VARCHAR, notes VARCHAR, is_load BOOLEAN, decline_reason VARCHAR, local_amount BIGINT, local_currency VARCHAR, counterparty STRUCT(name VARCHAR), merchant STRUCT(id VARCHAR, group_id VARCHAR, name VARCHAR, category VARCHAR, emoji VARCHAR, online BOOLEAN, atm BOOLEAN, address STRUCT(city VARCHAR, country VARCHAR)))'})
     tables:
       - name: transactions
         description: One row per raw JSON blob - {source, transaction} as written by the webhook/reconciliation Functions.

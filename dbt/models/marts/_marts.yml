@@ -67,10 +67,10 @@ models:
 
   - name: mart_merchant_summary
     description: >
-      Spend totals per merchant, excluding declined transactions. Written to
-      marts/merchant_summary.parquet (external materialization - full rewrite each run).
+      Spend totals per logical merchant (int_merchant_groups), excluding declined transactions.
+      Written to marts/merchant_summary.parquet (external materialization - full rewrite each run).
     columns:
-      - name: merchant_id
+      - name: merchant_group_key
         data_tests:
           - unique
           - not_null
@@ -79,3 +79,33 @@ models:
     description: >
       Merchants charging the same amount in 2+ distinct calendar months. Written to
       marts/subscriptions.parquet (external materialization - full rewrite each run).
+
+  - name: mcp_transactions
+    description: >
+      Serving dataset for the MCP server's transaction-level tools - exactly the spec's row shape,
+      with text sanitised and counterparties masked in-model. Written to
+      marts/mcp_transactions.parquet (one file, full rewrite each run).
+    columns:
+      - name: transaction_id
+        data_tests:
+          - unique
+          - not_null
+      - name: created_at
+        data_tests:
+          - not_null
+      - name: amount_gbp
+        data_tests:
+          - not_null
+      - name: local_currency
+        data_tests:
+          - not_null
+      - name: category
+        data_tests:
+          - accepted_values:
+              # warn for the same reason as on stg_transactions: Monzo's taxonomy is external.
+              config:
+                severity: warn
+              arguments:
+                values: [general, eating_out, expenses, groceries, bills, entertainment, transport,
+                         holidays, family, personal_care, shopping, cash, transfers, income, gifts,
+                         finances, savings, charity]

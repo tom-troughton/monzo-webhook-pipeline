@@ -1,0 +1,24 @@
+{
+  "source": "webhook",
+  "transaction": {
+    "id": "tx_syn00051",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -5000,
+    "currency": "GBP",
+    "created": "2026-03-12T20:00:00Z",
+    "settled": "2026-03-12T21:00:00Z",
+    "description": "Jane Doe",
+    "category": "transfers",
+    "notes": "Dinner split",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": null,
+    "local_amount": -5000,
+    "local_currency": "GBP",
+    "counterparty": {
+      "name": "Jane Doe",
+      "sort_code": "040004",
+      "account_number": "12345678"
+    }
+  }
+}

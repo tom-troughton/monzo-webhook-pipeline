@@ -4,3 +4,5 @@
 mcp~=2.0.0
 duckdb~=1.5.5
 python-dotenv~=1.2.2
+# zoneinfo needs a tz database for Europe/London date handling, and Windows has none built in.
+tzdata~=2026.3

@@ -1,0 +1,32 @@
+{
+  "source": "reconciliation",
+  "transaction": {
+    "id": "tx_syn00050",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -263,
+    "currency": "GBP",
+    "created": "2026-03-19T11:00:00Z",
+    "settled": "2026-03-19T12:00:00Z",
+    "description": "LAWSON",
+    "category": "groceries",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000lawson0001",
+      "group_id": null,
+      "name": "Lawson",
+      "category": "groceries",
+      "emoji": "\ud83c\udfea",
+      "online": false,
+      "atm": false,
+      "address": {
+        "city": "Kyoto",
+        "country": "JPN"
+      }
+    },
+    "local_amount": -500,
+    "local_currency": "JPY",
+    "counterparty": {}
+  }
+}

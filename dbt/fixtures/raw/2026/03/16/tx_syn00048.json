@@ -1,0 +1,32 @@
+{
+  "source": "reconciliation",
+  "transaction": {
+    "id": "tx_syn00048",
+    "account_id": "acc_00009xJ4personal01",
+    "amount": -2105,
+    "currency": "GBP",
+    "created": "2026-03-16T11:00:00Z",
+    "settled": "2026-03-16T12:00:00Z",
+    "description": "UNIQLO 201",
+    "category": "shopping",
+    "notes": "",
+    "is_load": false,
+    "decline_reason": null,
+    "merchant": {
+      "id": "merch_0000uniqlo0201",
+      "group_id": "grp_0000uniqlo00001",
+      "name": "UNIQLO 201",
+      "category": "shopping",
+      "emoji": "\ud83d\udc55",
+      "online": false,
+      "atm": false,
+      "address": {
+        "city": "Tokyo",
+        "country": "JPN"
+      }
+    },
+    "local_amount": -4000,
+    "local_currency": "JPY",
+    "counterparty": {}
+  }
+}

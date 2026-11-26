@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000boots00001",
+      "group_id": "grp_0000boots00001",
       "name": "Boots",
       "category": "shopping",
       "emoji": "\ud83d\udc8a",
       "online": false,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -1450,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }

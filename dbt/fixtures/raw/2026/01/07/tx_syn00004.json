@@ -14,11 +14,19 @@
     "decline_reason": null,
     "merchant": {
       "id": "merch_0000spotify001",
+      "group_id": "grp_0000spotify001",
       "name": "Spotify",
       "category": "entertainment",
       "emoji": "\ud83c\udfb5",
       "online": true,
-      "atm": false
-    }
+      "atm": false,
+      "address": {
+        "city": "London",
+        "country": "GBR"
+      }
+    },
+    "local_amount": -1099,
+    "local_currency": "GBP",
+    "counterparty": {}
   }
 }
